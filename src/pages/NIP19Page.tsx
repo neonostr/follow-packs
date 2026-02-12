@@ -1,5 +1,5 @@
 import { nip19 } from 'nostr-tools';
-import { useParams } from 'react-router-dom';
+import { useParams, Navigate } from 'react-router-dom';
 import NotFound from './NotFound';
 
 export function NIP19Page() {
@@ -21,22 +21,26 @@ export function NIP19Page() {
   switch (type) {
     case 'npub':
     case 'nprofile':
-      // AI agent should implement profile view here
-      return <div>Profile placeholder</div>;
+      // Not implemented — just link externally
+      return <NotFound />;
 
     case 'note':
-      // AI agent should implement note view here
-      return <div>Note placeholder</div>;
+      return <NotFound />;
 
     case 'nevent':
-      // AI agent should implement event view here
-      return <div>Event placeholder</div>;
+      return <NotFound />;
 
-    case 'naddr':
-      // AI agent should implement addressable event view here
-      return <div>Addressable event placeholder</div>;
+    case 'naddr': {
+      const addr = decoded.data;
+      // Handle follow pack (kind 39089) addresses
+      if (addr.kind === 39089) {
+        const npub = nip19.npubEncode(addr.pubkey);
+        return <Navigate to={`/pack/${npub}/${addr.identifier}`} replace />;
+      }
+      return <NotFound />;
+    }
 
     default:
       return <NotFound />;
   }
-} 
+}
