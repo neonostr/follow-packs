@@ -23,6 +23,21 @@ export function useLoginActions() {
       const login = await NLogin.fromExtension();
       addLogin(login);
     },
+    // Login with a client-initiated nostrconnect flow (QR code scanning)
+    // Returns the generated NLogin after the remote signer connects
+    async nostrconnect(opts: {
+      bunkerPubkey: string;
+      clientNsec: `nsec1${string}`;
+      relays: string[];
+      userPubkey: string;
+    }): Promise<void> {
+      const login = new NLogin('bunker', opts.userPubkey, {
+        bunkerPubkey: opts.bunkerPubkey,
+        clientNsec: opts.clientNsec,
+        relays: opts.relays,
+      });
+      addLogin(login);
+    },
     // Log out the current user
     async logout(): Promise<void> {
       const login = logins[0];

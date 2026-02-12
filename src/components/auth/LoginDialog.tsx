@@ -1,16 +1,13 @@
-// NOTE: This file is stable and usually should not be modified.
-// It is important that all functionality in this file is preserved, and should only be modified if explicitly requested.
-
 import React, { useRef, useState, useEffect } from 'react';
 import { Upload, AlertTriangle, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogHeader } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useLoginActions } from '@/hooks/useLoginActions';
-import { DialogTitle } from '@radix-ui/react-dialog';
+import { NostrConnectLogin } from './NostrConnectLogin';
 
 interface LoginDialogProps {
   isOpen: boolean;
@@ -69,8 +66,6 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
       onClose();
     } catch (e: unknown) {
       const error = e as Error;
-      console.error('Bunker login failed:', error);
-      console.error('Nsec login failed:', error);
       console.error('Extension login failed:', error);
       setErrors(prev => ({
         ...prev,
@@ -170,17 +165,22 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
     reader.readAsText(file);
   };
 
+  const handleQrLogin = () => {
+    onLogin();
+    onClose();
+  };
+
   const hasExtension = 'nostr' in window;
   const [isMoreOptionsOpen, setIsMoreOptionsOpen] = useState(false);
 
-  const renderTabs = () => (
+  const renderAdvancedTabs = () => (
     <Tabs defaultValue="key" className="w-full">
       <TabsList className="grid w-full grid-cols-2 bg-muted/80 rounded-lg mb-4">
         <TabsTrigger value="key" className="flex items-center gap-2">
           <span>Secret Key</span>
         </TabsTrigger>
         <TabsTrigger value="bunker" className="flex items-center gap-2">
-          <span>Remote Signer</span>
+          <span>Bunker URI</span>
         </TabsTrigger>
       </TabsList>
 
@@ -257,7 +257,7 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
                 setBunkerUri(e.target.value);
                 if (errors.bunker) setErrors(prev => ({ ...prev, bunker: undefined }));
               }}
-              className={`rounded-lg border-gray-300 dark:border-gray-700 focus-visible:ring-primary ${
+              className={`rounded-lg ${
                 errors.bunker ? 'border-red-500' : ''
               }`}
               placeholder='bunker://'
@@ -283,21 +283,20 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-[95vw] sm:max-w-sm max-h-[90dvh] p-0 gap-6 overflow-hidden rounded-2xl overflow-y-auto">
-        <DialogHeader className="px-6 pt-6">
+      <DialogContent className="max-w-[95vw] sm:max-w-md max-h-[90dvh] p-0 gap-0 overflow-hidden rounded-2xl overflow-y-auto">
+        <DialogHeader className="px-6 pt-6 pb-2">
           <DialogTitle className="text-lg font-semibold leading-none tracking-tight text-center">
             Log in
           </DialogTitle>
+          <DialogDescription className="text-center text-sm text-muted-foreground">
+            Connect with your Nostr account
+          </DialogDescription>
         </DialogHeader>
-
-        <div className="flex size-40 text-8xl bg-primary/10 rounded-full items-center justify-center justify-self-center">
-          🔑
-        </div>
 
         <div className='px-6 pb-6 space-y-4 overflow-y-auto'>
           {/* Extension Login Button - shown if extension is available */}
           {hasExtension && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {errors.extension && (
                 <Alert variant="destructive">
                   <AlertTriangle className="h-4 w-4" />
@@ -314,23 +313,24 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
             </div>
           )}
 
-          {/* Tabs - wrapped in collapsible if extension is available, otherwise shown directly */}
-          {hasExtension ? (
-            <Collapsible className="space-y-4" open={isMoreOptionsOpen} onOpenChange={setIsMoreOptionsOpen}>
-              <CollapsibleTrigger asChild>
-                <button className="w-full flex items-center justify-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
-                  <span>More Options</span>
-                  <ChevronDown className={`w-4 h-4 transition-transform ${isMoreOptionsOpen ? 'rotate-180' : ''}`} />
-                </button>
-              </CollapsibleTrigger>
+          {/* QR Code Scanner - always shown as the main/preferred login option for mobile */}
+          <div className="border rounded-xl p-4 bg-muted/20">
+            <NostrConnectLogin onLogin={handleQrLogin} />
+          </div>
 
-              <CollapsibleContent>
-                {renderTabs()}
-              </CollapsibleContent>
-            </Collapsible>
-          ) : (
-            renderTabs()
-          )}
+          {/* Advanced options in collapsible */}
+          <Collapsible className="space-y-4" open={isMoreOptionsOpen} onOpenChange={setIsMoreOptionsOpen}>
+            <CollapsibleTrigger asChild>
+              <button className="w-full flex items-center justify-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <span>More Options</span>
+                <ChevronDown className={`w-4 h-4 transition-transform ${isMoreOptionsOpen ? 'rotate-180' : ''}`} />
+              </button>
+            </CollapsibleTrigger>
+
+            <CollapsibleContent>
+              {renderAdvancedTabs()}
+            </CollapsibleContent>
+          </Collapsible>
         </div>
       </DialogContent>
     </Dialog>
