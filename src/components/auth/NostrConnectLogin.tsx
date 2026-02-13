@@ -8,8 +8,11 @@ import { Button } from '@/components/ui/button';
 import { useLoginActions } from '@/hooks/useLoginActions';
 
 const NOSTRCONNECT_RELAYS = [
+  'wss://relay.nostr.band',
+  'wss://relay.primal.net',
   'wss://relay.nsec.app',
   'wss://relay.damus.io',
+  'wss://nos.lol',
 ];
 
 interface NostrConnectLoginProps {
@@ -39,17 +42,7 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
       const ac = new AbortController();
       abortRef.current = ac;
 
-      if (typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal) {
-        const timeoutSignal = AbortSignal.timeout(15_000);
-        timeoutSignal.addEventListener('abort', () => {
-          if (!hasConnected.current) {
-            setError('QR code expired. Generate a new code.');
-            setStatus('error');
-          }
-        }, { once: true });
-
-        timeoutSignal.addEventListener('abort', () => ac.abort(), { once: true });
-      }
+      // No automatic timeout; user can manually refresh the QR code if needed.
 
       const clientSk = generateSecretKey();
       const clientPubkey = getPublicKey(clientSk);
@@ -58,7 +51,7 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
       const secret = (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10)).slice(0, 16);
 
       const relayParams = NOSTRCONNECT_RELAYS.map((r) => `relay=${encodeURIComponent(r)}`).join('&');
-      const nostrconnectUri = `nostrconnect://${clientPubkey}?${relayParams}&secret=${encodeURIComponent(secret)}&name=${encodeURIComponent('Follow Packs')}&perms=sign_event`;
+      const nostrconnectUri = `nostrconnect://${clientPubkey}?${relayParams}&secret=${encodeURIComponent(secret)}&name=${encodeURIComponent('Follow Packs')}&url=${encodeURIComponent(location.origin)}&image=${encodeURIComponent(`${location.origin}/favicon.png`)}&perms=sign_event,nip44_encrypt,nip44_decrypt`;
 
       const dataUrl = await QRCode.toDataURL(nostrconnectUri, {
         width: 280,
@@ -82,6 +75,18 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
       }
 
       const relayGroup = nostr.group(NOSTRCONNECT_RELAYS);
+
+      try {
+        await relayGroup.query([{ kinds: [24133], limit: 1 }]);
+      } catch {
+        // Ignore warmup errors
+      }
+
+      console.info('NostrConnect QR generated', {
+        relays: NOSTRCONNECT_RELAYS,
+        clientPubkey,
+        uri: nostrconnectUri,
+      });
 
       const decryptResponse = async (pubkey: string, content: string) => {
         try {
