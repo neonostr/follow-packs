@@ -1,8 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Loader2, QrCode, RefreshCw } from 'lucide-react';
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 import QRCode from 'qrcode';
-import { NConnectSigner, NSecSigner } from '@nostrify/nostrify';
 import { useNostr } from '@nostrify/react';
 
 import { Button } from '@/components/ui/button';
@@ -26,8 +25,7 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
   const abortRef = useRef<AbortController | null>(null);
   const hasConnected = useRef(false);
 
-  const generateNostrConnect = useCallback(async () => {
-    // Clean up previous attempt
+  const generateNostrConnect = async () => {
     if (abortRef.current) {
       abortRef.current.abort();
     }
@@ -35,24 +33,33 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
     hasConnected.current = false;
     setError(null);
     setStatus('generating');
+    setQrDataUrl(null);
 
     try {
       const ac = new AbortController();
       abortRef.current = ac;
 
-      // 1. Generate a fresh client keypair
+      if (typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal) {
+        const timeoutSignal = AbortSignal.timeout(15_000);
+        timeoutSignal.addEventListener('abort', () => {
+          if (!hasConnected.current) {
+            setError('QR code expired. Generate a new code.');
+            setStatus('error');
+          }
+        }, { once: true });
+
+        timeoutSignal.addEventListener('abort', () => ac.abort(), { once: true });
+      }
+
       const clientSk = generateSecretKey();
       const clientPubkey = getPublicKey(clientSk);
       const clientNsec = nip19.nsecEncode(clientSk);
 
-      // 2. Generate a random secret for the connection
-      const secret = crypto.randomUUID().slice(0, 16);
+      const secret = (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10)).slice(0, 16);
 
-      // 3. Build the nostrconnect:// URI
       const relayParams = NOSTRCONNECT_RELAYS.map((r) => `relay=${encodeURIComponent(r)}`).join('&');
       const nostrconnectUri = `nostrconnect://${clientPubkey}?${relayParams}&secret=${encodeURIComponent(secret)}&name=${encodeURIComponent('Follow Packs')}&perms=sign_event`;
 
-      // 4. Generate QR code
       const dataUrl = await QRCode.toDataURL(nostrconnectUri, {
         width: 280,
         margin: 2,
@@ -63,84 +70,105 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
         errorCorrectionLevel: 'M',
       });
 
+      if (ac.signal.aborted) return;
       setQrDataUrl(dataUrl);
       setStatus('waiting');
 
-      // 5. Create a local signer with the client secret key
+      const { NSecSigner, NConnectSigner } = await import('@nostrify/nostrify');
       const clientSigner = new NSecSigner(clientSk);
 
-      // 6. Listen for the connect response from the remote signer
+      if (!nostr?.group) {
+        throw new Error('Nostr pool not ready');
+      }
+
       const relayGroup = nostr.group(NOSTRCONNECT_RELAYS);
 
-      const req = relayGroup.req(
-        [{ kinds: [24133], '#p': [clientPubkey], since: Math.floor(Date.now() / 1000) - 5 }],
-        { signal: ac.signal },
-      );
+      const decryptResponse = async (pubkey: string, content: string) => {
+        try {
+          return await clientSigner.nip44!.decrypt(pubkey, content);
+        } catch {
+          return await clientSigner.nip04!.decrypt(pubkey, content);
+        }
+      };
 
-      for await (const msg of req) {
-        if (ac.signal.aborted || hasConnected.current) break;
-
-        if (msg[0] === 'EVENT') {
-          const event = msg[2];
-
+      const listenForConnect = async () => {
+        while (!ac.signal.aborted && !hasConnected.current) {
           try {
-            // Decrypt the response
-            const decrypted = await clientSigner.nip44!.decrypt(event.pubkey, event.content);
-            const response = JSON.parse(decrypted);
+            const req = relayGroup.req(
+              [{ kinds: [24133], '#p': [clientPubkey], since: Math.floor(Date.now() / 1000) - 5 }],
+              { signal: ac.signal },
+            );
 
-            // Check if this is a connect response with our secret
-            if (response.result === secret) {
-              hasConnected.current = true;
-              setStatus('connecting');
+            for await (const msg of req) {
+              if (ac.signal.aborted || hasConnected.current) break;
 
-              const bunkerPubkey = event.pubkey;
+              if (msg[0] === 'EVENT') {
+                const event = msg[2];
 
-              // Create the NConnectSigner to get the user's public key
-              const signer = new NConnectSigner({
-                relay: relayGroup,
-                pubkey: bunkerPubkey,
-                signer: clientSigner,
-                timeout: 30_000,
-              });
+                try {
+                  const decrypted = await decryptResponse(event.pubkey, event.content);
+                  const response = JSON.parse(decrypted);
 
-              const userPubkey = await signer.getPublicKey();
+                  if (response.result === secret) {
+                    hasConnected.current = true;
+                    setStatus('connecting');
 
-              // Login!
-              await login.nostrconnect({
-                bunkerPubkey,
-                clientNsec: clientNsec as `nsec1${string}`,
-                relays: NOSTRCONNECT_RELAYS,
-                userPubkey,
-              });
+                    const bunkerPubkey = event.pubkey;
+                    const signer = new NConnectSigner({
+                      relay: relayGroup,
+                      pubkey: bunkerPubkey,
+                      signer: clientSigner,
+                      timeout: 30_000,
+                    });
 
-              ac.abort();
-              onLogin();
-              return;
+                    const userPubkey = await signer.getPublicKey();
+
+                    await login.nostrconnect({
+                      bunkerPubkey,
+                      clientNsec: clientNsec as `nsec1${string}`,
+                      relays: NOSTRCONNECT_RELAYS,
+                      userPubkey,
+                    });
+
+                    ac.abort();
+                    onLogin();
+                    return;
+                  }
+                } catch {
+                  // Not for us or decryption failed, continue listening
+                }
+              }
             }
           } catch {
-            // Not for us or decryption failed, continue listening
+            // Ignore relay errors and retry
+          }
+
+          if (!ac.signal.aborted && !hasConnected.current) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
           }
         }
+      };
 
-        if (msg[0] === 'CLOSED') {
-          break;
-        }
-      }
+      await listenForConnect();
     } catch (err) {
       if (abortRef.current?.signal.aborted) return;
+      const errorName = err instanceof Error ? err.name : '';
+      if (errorName === 'AbortError') return;
       console.error('NostrConnect error:', err);
-      setError('Connection failed. Please try again.');
+      const message = err instanceof Error ? err.message : 'Connection failed. Please try again.';
+      setError(message);
       setStatus('error');
     }
-  }, [nostr, login, onLogin]);
+  };
 
-  // Start generating on mount
+  // Start generating on mount, cleanup on unmount
   useEffect(() => {
     generateNostrConnect();
     return () => {
       abortRef.current?.abort();
     };
-  }, [generateNostrConnect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (status === 'generating' || status === 'idle') {
     return (
@@ -188,7 +216,6 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
       {qrDataUrl && (
         <div className="relative bg-white rounded-xl p-2 shadow-sm border">
           <img src={qrDataUrl} alt="Scan to connect" className="w-64 h-64" />
-          {/* Scanning indicator */}
           <div className="absolute inset-2 rounded-lg border-2 border-primary/20 pointer-events-none" />
         </div>
       )}

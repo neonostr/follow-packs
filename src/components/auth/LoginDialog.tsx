@@ -313,10 +313,12 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
             </div>
           )}
 
-          {/* QR Code Scanner - always shown as the main/preferred login option for mobile */}
-          <div className="border rounded-xl p-4 bg-muted/20">
-            <NostrConnectLogin onLogin={handleQrLogin} />
-          </div>
+          {/* QR Code Scanner - only mounted when dialog is open */}
+          {isOpen && (
+            <div className="border rounded-xl p-4 bg-muted/20">
+              <NostrConnectLogin onLogin={handleQrLogin} />
+            </div>
+          )}
 
           {/* Advanced options in collapsible */}
           <Collapsible className="space-y-4" open={isMoreOptionsOpen} onOpenChange={setIsMoreOptionsOpen}>
