@@ -96,60 +96,75 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
         }
       };
 
+      // Use a fixed timestamp from QR generation so we never miss events
+      // due to subscription gaps or timing drift
+      const listenSince = Math.floor(Date.now() / 1000) - 10;
+
       const listenForConnect = async () => {
-        while (!ac.signal.aborted && !hasConnected.current) {
-          try {
-            const req = relayGroup.req(
-              [{ kinds: [24133], '#p': [clientPubkey], since: Math.floor(Date.now() / 1000) - 5 }],
-              { signal: ac.signal },
-            );
+        // Single long-running subscription to avoid gaps between re-subscriptions
+        const req = relayGroup.req(
+          [{ kinds: [24133], '#p': [clientPubkey], since: listenSince }],
+          { signal: ac.signal },
+        );
 
-            for await (const msg of req) {
-              if (ac.signal.aborted || hasConnected.current) break;
+        for await (const msg of req) {
+          if (ac.signal.aborted || hasConnected.current) break;
 
-              if (msg[0] === 'EVENT') {
-                const event = msg[2];
+          if (msg[0] === 'EVENT') {
+            const event = msg[2];
 
-                try {
-                  const decrypted = await decryptResponse(event.pubkey, event.content);
-                  const response = JSON.parse(decrypted);
+            try {
+              const decrypted = await decryptResponse(event.pubkey, event.content);
+              const response = JSON.parse(decrypted);
 
-                  if (response.result === secret) {
-                    hasConnected.current = true;
-                    setStatus('connecting');
+              if (response.result === secret) {
+                hasConnected.current = true;
+                setStatus('connecting');
 
-                    const bunkerPubkey = event.pubkey;
-                    const signer = new NConnectSigner({
-                      relay: relayGroup,
-                      pubkey: bunkerPubkey,
-                      signer: clientSigner,
-                      timeout: 30_000,
-                    });
+                const bunkerPubkey = event.pubkey;
 
-                    const userPubkey = await signer.getPublicKey();
+                // Stabilization delay: let relay connections settle after handshake
+                await new Promise((resolve) => setTimeout(resolve, 3000));
 
-                    await login.nostrconnect({
-                      bunkerPubkey,
-                      clientNsec: clientNsec as `nsec1${string}`,
-                      relays: NOSTRCONNECT_RELAYS,
-                      userPubkey,
-                    });
+                const signer = new NConnectSigner({
+                  relay: relayGroup,
+                  pubkey: bunkerPubkey,
+                  signer: clientSigner,
+                  timeout: 30_000,
+                });
 
-                    ac.abort();
-                    onLogin();
-                    return;
+                // Retry getPublicKey up to 3 times to handle relay instability
+                let userPubkey: string | undefined;
+                for (let attempt = 0; attempt < 3; attempt++) {
+                  try {
+                    userPubkey = await signer.getPublicKey();
+                    break;
+                  } catch (err) {
+                    console.warn(`getPublicKey attempt ${attempt + 1} failed:`, err);
+                    if (attempt < 2) {
+                      await new Promise((resolve) => setTimeout(resolve, 2000));
+                    }
                   }
-                } catch {
-                  // Not for us or decryption failed, continue listening
                 }
-              }
-            }
-          } catch {
-            // Ignore relay errors and retry
-          }
 
-          if (!ac.signal.aborted && !hasConnected.current) {
-            await new Promise((resolve) => setTimeout(resolve, 1000));
+                if (!userPubkey) {
+                  throw new Error('Failed to retrieve public key from signer after multiple attempts.');
+                }
+
+                await login.nostrconnect({
+                  bunkerPubkey,
+                  clientNsec: clientNsec as `nsec1${string}`,
+                  relays: NOSTRCONNECT_RELAYS,
+                  userPubkey,
+                });
+
+                ac.abort();
+                onLogin();
+                return;
+              }
+            } catch {
+              // Not for us or decryption failed, continue listening
+            }
           }
         }
       };
