@@ -67,14 +67,22 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
       setQrDataUrl(dataUrl);
       setStatus('waiting');
 
-      const { NSecSigner, NConnectSigner } = await import('@nostrify/nostrify');
+      const { NSecSigner, NConnectSigner, NPool } = await import('@nostrify/nostrify');
       const clientSigner = new NSecSigner(clientSk);
 
-      if (!nostr?.group) {
+      if (!nostr) {
         throw new Error('Nostr pool not ready');
       }
 
-      const relayGroup = nostr.group(NOSTRCONNECT_RELAYS);
+      // Create a dedicated pool for NIP-46 with eoseTimeout disabled.
+      // The default NPool.group() uses eoseTimeout=1000ms which kills
+      // the subscription ~1s after EOSE, before the user can scan the QR.
+      const relayGroup = new NPool({
+        open: (url: string) => nostr.relay(url),
+        reqRouter: (filters) => new Map(NOSTRCONNECT_RELAYS.map((url) => [url, filters])),
+        eventRouter: () => NOSTRCONNECT_RELAYS,
+        eoseTimeout: 0,
+      });
 
       try {
         await relayGroup.query([{ kinds: [24133], limit: 1 }]);
