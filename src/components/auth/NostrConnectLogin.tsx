@@ -49,7 +49,7 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
       const secret = (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10)).slice(0, 16);
 
       const relayParams = NOSTRCONNECT_RELAYS.map(r => `relay=${encodeURIComponent(r)}`).join('&');
-      const nostrconnectUri = `nostrconnect://${clientPubkey}?${relayParams}&secret=${encodeURIComponent(secret)}&name=${encodeURIComponent('Follow Packs')}&url=${encodeURIComponent(location.origin)}&image=${encodeURIComponent(`${location.origin}/favicon.png`)}&perms=sign_event,nip44_encrypt,nip44_decrypt`;
+      const nostrconnectUri = `nostrconnect://${clientPubkey}?${relayParams}&secret=${encodeURIComponent(secret)}&name=${encodeURIComponent('Follow Packs')}&url=${encodeURIComponent(location.origin)}&image=${encodeURIComponent(`${location.origin}/icon-192.png`)}&perms=sign_event,nip44_encrypt,nip44_decrypt`;
 
       const dataUrl = await QRCode.toDataURL(nostrconnectUri, {
         width: 280,
