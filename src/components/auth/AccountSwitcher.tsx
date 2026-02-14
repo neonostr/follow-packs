@@ -18,7 +18,7 @@ interface AccountSwitcherProps {
 }
 
 export function AccountSwitcher({ onAddAccountClick }: AccountSwitcherProps) {
-  const { currentUser, otherUsers, setLogin, removeLogin } = useLoggedInAccounts();
+  const { currentUser, otherUsers, setLogin, clearLogins } = useLoggedInAccounts();
 
   if (!currentUser) return null;
 
@@ -67,8 +67,8 @@ export function AccountSwitcher({ onAddAccountClick }: AccountSwitcherProps) {
           <span>Add another account</span>
         </DropdownMenuItem>
         <DropdownMenuItem
-          onClick={() => removeLogin(currentUser.id)}
-          className='flex items-center gap-2 cursor-pointer p-2 rounded-md text-red-500'
+          onClick={() => clearLogins()}
+          className='flex items-center gap-2 cursor-pointer p-2 rounded-md text-destructive'
         >
           <LogOut className='w-4 h-4' />
           <span>Log out</span>

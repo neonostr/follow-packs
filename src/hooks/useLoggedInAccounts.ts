@@ -12,7 +12,7 @@ export interface Account {
 
 export function useLoggedInAccounts() {
   const { nostr } = useNostr();
-  const { logins, setLogin, removeLogin } = useNostrLogin();
+  const { logins, setLogin, removeLogin, clearLogins } = useNostrLogin();
 
   const { data: authors = [] } = useQuery({
     queryKey: ['nostr', 'logins', logins.map((l) => l.id).join(';')],
@@ -52,5 +52,6 @@ export function useLoggedInAccounts() {
     otherUsers,
     setLogin,
     removeLogin,
+    clearLogins,
   };
 }
