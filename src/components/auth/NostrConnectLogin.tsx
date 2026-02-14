@@ -27,6 +27,10 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
   const [error, setError] = useState<string | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const hasConnected = useRef(false);
+  const loginRef = useRef(login);
+  const onLoginRef = useRef(onLogin);
+  loginRef.current = login;
+  onLoginRef.current = onLogin;
 
   const generateNostrConnect = useCallback(async () => {
     // Cleanup previous attempt
@@ -120,14 +124,14 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
 
                 console.info('NostrConnect: login successful', { userPubkey });
 
-                await login.nostrconnect({
+                await loginRef.current.nostrconnect({
                   bunkerPubkey,
                   clientNsec: clientNsec as `nsec1${string}`,
                   relays: NOSTRCONNECT_RELAYS,
                   userPubkey,
                 });
 
-                onLogin();
+                onLoginRef.current();
               }
             } catch (err) {
               if (hasConnected.current) {
@@ -157,7 +161,7 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
       setError(err instanceof Error ? err.message : 'Connection failed. Please try again.');
       setStatus('error');
     }
-  }, [login, onLogin]);
+  }, []);
 
   useEffect(() => {
     generateNostrConnect();
