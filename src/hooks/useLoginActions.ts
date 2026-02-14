@@ -5,7 +5,7 @@ import { NLogin, useNostrLogin } from '@nostrify/react/login';
 
 export function useLoginActions() {
   const { nostr } = useNostr();
-  const { logins, addLogin, removeLogin } = useNostrLogin();
+  const { addLogin, clearLogins } = useNostrLogin();
 
   return {
     // Login with a Nostr secret key
@@ -38,12 +38,9 @@ export function useLoginActions() {
       });
       addLogin(login);
     },
-    // Log out the current user
+    // Log out completely - clears ALL stored sessions
     async logout(): Promise<void> {
-      const login = logins[0];
-      if (login) {
-        removeLogin(login.id);
-      }
+      clearLogins();
     }
   };
 }
