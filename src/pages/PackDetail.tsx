@@ -85,14 +85,14 @@ function MemberRow({
         </a>
         {!isOwnProfile && (
           isFollowed ? (
-            <Button variant="outline" size="sm" className="text-xs rounded-full h-7 px-3" disabled>
+            <Button variant="outline" size="sm" className="text-xs rounded-full h-7 w-[100px] px-3" disabled>
               <Check className="w-3 h-3 mr-1" />
               Following
             </Button>
           ) : (
             <Button
               size="sm"
-              className="text-xs rounded-full h-7 px-3"
+              className="text-xs rounded-full h-7 w-[100px] px-3"
               onClick={() => onFollow(pubkey)}
               disabled={isFollowing}
             >
