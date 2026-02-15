@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useSeoMeta } from '@unhead/react';
 import { Plus, Users, Search, PackagePlus } from 'lucide-react';
 
@@ -12,6 +12,7 @@ import { FollowPackCard } from '@/components/FollowPackCard';
 import { CreatePackDialog } from '@/components/CreatePackDialog';
 import { useFollowPacks, useUserFollowPacks } from '@/hooks/useFollowPacks';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useUserFollowList } from '@/hooks/useUserFollowList';
 
 function PackGridSkeleton() {
   return (
@@ -45,13 +46,31 @@ const Index = () => {
 
   const { data: allPacks = [], isLoading: loadingAll } = useFollowPacks(100);
   const { data: myPacks = [], isLoading: loadingMy } = useUserFollowPacks(user?.pubkey);
+  const { data: myFollowList = [] } = useUserFollowList(user?.pubkey);
 
   useSeoMeta({
     title: 'Follow Packs — Nostr Follow Packs',
     description: 'Discover and share curated lists of Nostr users to follow. Find the users that are most interesting to you or create your own lists.',
   });
 
-  const displayPacks = activeTab === 'mine' ? myPacks : allPacks;
+  const packsImIn = useMemo(
+    () => user ? allPacks.filter((pack) => pack.pubkeys.includes(user.pubkey)) : [],
+    [allPacks, user],
+  );
+
+  const packsFromFollowing = useMemo(
+    () => myFollowList.length > 0
+      ? allPacks.filter((pack) => myFollowList.includes(pack.author))
+      : [],
+    [allPacks, myFollowList],
+  );
+
+  const displayPacks =
+    activeTab === 'mine' ? myPacks :
+    activeTab === 'in' ? packsImIn :
+    activeTab === 'following' ? packsFromFollowing :
+    allPacks;
+
   const filteredPacks = searchFilter.trim()
     ? displayPacks.filter(
         (pack) =>
@@ -133,6 +152,8 @@ const Index = () => {
                 <TabsList className="bg-muted/60">
                   <TabsTrigger value="all" className="text-sm">All Packs</TabsTrigger>
                   <TabsTrigger value="mine" className="text-sm">My Packs</TabsTrigger>
+                  <TabsTrigger value="in" className="text-sm">I'm In</TabsTrigger>
+                  <TabsTrigger value="following" className="text-sm">From Following</TabsTrigger>
                 </TabsList>
               </Tabs>
             )}
@@ -157,11 +178,18 @@ const Index = () => {
                 <Users className="w-8 h-8 text-muted-foreground" />
               </div>
               <h3 className="text-lg font-medium text-foreground mb-2">
-                {activeTab === 'mine' ? 'No follow packs yet' : 'No packs found'}
+                {activeTab === 'mine' ? 'No follow packs yet'
+                  : activeTab === 'in' ? "You're not in any packs yet"
+                  : activeTab === 'following' ? 'No packs from people you follow'
+                  : 'No packs found'}
               </h3>
               <p className="text-muted-foreground text-sm max-w-sm mx-auto">
                 {activeTab === 'mine'
                   ? "You haven't created any follow packs. Create one to get started!"
+                  : activeTab === 'in'
+                  ? "You haven't been added to any follow packs yet."
+                  : activeTab === 'following'
+                  ? "People you follow haven't created any packs yet."
                   : searchFilter
                   ? 'Try adjusting your search terms.'
                   : 'Be the first to create a follow pack!'}
