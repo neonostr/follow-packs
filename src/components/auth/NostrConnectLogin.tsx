@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Loader2, QrCode, RefreshCw } from 'lucide-react';
+import { Loader2, QrCode, RefreshCw, Smartphone } from 'lucide-react';
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { nip19 } from 'nostr-tools';
 import { SimplePool } from 'nostr-tools/pool';
@@ -9,6 +9,7 @@ import QRCode from 'qrcode';
 
 import { Button } from '@/components/ui/button';
 import { useLoginActions } from '@/hooks/useLoginActions';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 const NOSTRCONNECT_RELAYS = [
   'wss://relay.nsec.app',
@@ -23,8 +24,10 @@ interface NostrConnectLoginProps {
 export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
   const login = useLoginActions();
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [connectUri, setConnectUri] = useState<string | null>(null);
   const [status, setStatus] = useState<'idle' | 'generating' | 'waiting' | 'connecting' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
+  const isTouchDevice = useIsMobile();
   const cleanupRef = useRef<(() => void) | null>(null);
   const hasConnected = useRef(false);
   const loginRef = useRef(login);
@@ -40,6 +43,7 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
     setError(null);
     setStatus('generating');
     setQrDataUrl(null);
+    setConnectUri(null);
 
     try {
       const clientSk = generateSecretKey();
@@ -59,6 +63,7 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
       });
 
       setQrDataUrl(dataUrl);
+      setConnectUri(nostrconnectUri);
       setStatus('waiting');
 
       // Use nostr-tools SimplePool for reliable long-running subscription
@@ -213,9 +218,24 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
       </div>
 
       {qrDataUrl && (
-        <div className="relative bg-white rounded-xl p-2 shadow-sm border">
+        <div
+          className={`relative bg-white rounded-xl p-2 shadow-sm border ${isTouchDevice && connectUri ? 'cursor-pointer active:scale-[0.98] transition-transform' : ''}`}
+          onClick={() => {
+            if (isTouchDevice && connectUri) {
+              window.open(connectUri, '_blank');
+            }
+          }}
+          role={isTouchDevice ? 'link' : undefined}
+        >
           <img src={qrDataUrl} alt="Scan to connect" className="w-64 h-64" />
           <div className="absolute inset-2 rounded-lg border-2 border-primary/20 pointer-events-none" />
+        </div>
+      )}
+
+      {isTouchDevice && (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Smartphone className="w-3 h-3" />
+          Tap the QR code to open your signer app
         </div>
       )}
 
