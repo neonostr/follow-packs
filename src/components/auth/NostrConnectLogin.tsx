@@ -71,11 +71,11 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
 
       const subCloser = pool.subscribeMany(
         NOSTRCONNECT_RELAYS,
-        [{ kinds: [24133], '#p': [clientPubkey], since: Math.floor(Date.now() / 1000) - 5 }],
+        [{ kinds: [24133], '#p': [clientPubkey] }],
         {
-          eoseTimeout: 0,
           onevent: async (event) => {
             if (hasConnected.current) return;
+            console.info('NostrConnect: received event from', event.pubkey, 'kind:', event.kind);
 
             try {
               // Decrypt with NIP-44 (modern standard for NIP-46)
@@ -91,8 +91,10 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
               }
 
               const response = JSON.parse(decrypted);
+              console.info('NostrConnect: decrypted response', JSON.stringify(response));
+              console.info('NostrConnect: expected secret', secret, 'got result', response.result);
 
-              if (response.result === secret || response.result === 'ack') {
+              if (response.result === secret) {
                 hasConnected.current = true;
                 setStatus('connecting');
                 subCloser.close();
