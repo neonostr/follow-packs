@@ -71,8 +71,9 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
 
       const subCloser = pool.subscribeMany(
         NOSTRCONNECT_RELAYS,
-        [{ kinds: [24133], '#p': [clientPubkey] }],
+        [{ kinds: [24133], '#p': [clientPubkey], since: Math.floor(Date.now() / 1000) - 5 }],
         {
+          eoseTimeout: 0,
           onevent: async (event) => {
             if (hasConnected.current) return;
 
@@ -91,7 +92,7 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
 
               const response = JSON.parse(decrypted);
 
-              if (response.result === secret) {
+              if (response.result === secret || response.result === 'ack') {
                 hasConnected.current = true;
                 setStatus('connecting');
                 subCloser.close();
