@@ -16,7 +16,7 @@ export function useNostrPublish(): UseMutationResult<NostrEvent> {
 
         // Add the client tag if it doesn't exist
         if (location.protocol === "https:" && !tags.some(([name]) => name === "client")) {
-          tags.push(["client", location.hostname]);
+          tags.push(["client", "FollowPacks"]);
         }
 
         const event = await user.signer.signEvent({
