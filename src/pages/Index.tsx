@@ -1,18 +1,18 @@
-import { useMemo, useState } from 'react';
-import { useSeoMeta } from '@unhead/react';
-import { Plus, Users, Search, PackagePlus } from 'lucide-react';
+import { useMemo, useState } from "react";
+import { useSeoMeta } from "@unhead/react";
+import { Plus, Users, Search, PackagePlus } from "lucide-react";
 
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-import { LoginArea } from '@/components/auth/LoginArea';
-import { FollowPackCard } from '@/components/FollowPackCard';
-import { CreatePackDialog } from '@/components/CreatePackDialog';
-import { useFollowPacks, useUserFollowPacks } from '@/hooks/useFollowPacks';
-import { useCurrentUser } from '@/hooks/useCurrentUser';
-import { useUserFollowList } from '@/hooks/useUserFollowList';
+import { LoginArea } from "@/components/auth/LoginArea";
+import { FollowPackCard } from "@/components/FollowPackCard";
+import { CreatePackDialog } from "@/components/CreatePackDialog";
+import { useFollowPacks, useUserFollowPacks } from "@/hooks/useFollowPacks";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { useUserFollowList } from "@/hooks/useUserFollowList";
 
 function PackGridSkeleton() {
   return (
@@ -41,45 +41,47 @@ function PackGridSkeleton() {
 const Index = () => {
   const { user } = useCurrentUser();
   const [createOpen, setCreateOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<string>('all');
-  const [searchFilter, setSearchFilter] = useState('');
+  const [activeTab, setActiveTab] = useState<string>("all");
+  const [searchFilter, setSearchFilter] = useState("");
 
   const { data: allPacks = [], isLoading: loadingAll } = useFollowPacks(100);
   const { data: myPacks = [], isLoading: loadingMy } = useUserFollowPacks(user?.pubkey);
   const { data: myFollowList = [] } = useUserFollowList(user?.pubkey);
 
   useSeoMeta({
-    title: 'Follow Packs — Nostr Follow Packs',
-    description: 'Discover and share curated lists of Nostr users to follow. Find the users that are most interesting to you or create your own lists.',
+    title: "Follow Packs — Nostr Follow Packs",
+    description:
+      "Discover and share curated lists of Nostr users to follow. Find the users that are most interesting to you or create your own lists.",
   });
 
   const packsImIn = useMemo(
-    () => user ? allPacks.filter((pack) => pack.pubkeys.includes(user.pubkey)) : [],
+    () => (user ? allPacks.filter((pack) => pack.pubkeys.includes(user.pubkey)) : []),
     [allPacks, user],
   );
 
   const packsFromFollowing = useMemo(
-    () => myFollowList.length > 0
-      ? allPacks.filter((pack) => myFollowList.includes(pack.author))
-      : [],
+    () => (myFollowList.length > 0 ? allPacks.filter((pack) => myFollowList.includes(pack.author)) : []),
     [allPacks, myFollowList],
   );
 
   const displayPacks =
-    activeTab === 'mine' ? myPacks :
-    activeTab === 'in' ? packsImIn :
-    activeTab === 'following' ? packsFromFollowing :
-    allPacks;
+    activeTab === "mine"
+      ? myPacks
+      : activeTab === "in"
+        ? packsImIn
+        : activeTab === "following"
+          ? packsFromFollowing
+          : allPacks;
 
   const filteredPacks = searchFilter.trim()
     ? displayPacks.filter(
         (pack) =>
           pack.title.toLowerCase().includes(searchFilter.toLowerCase()) ||
-          pack.description.toLowerCase().includes(searchFilter.toLowerCase())
+          pack.description.toLowerCase().includes(searchFilter.toLowerCase()),
       )
     : displayPacks;
 
-  const isLoading = activeTab === 'mine' ? loadingMy : loadingAll;
+  const isLoading = activeTab === "mine" ? loadingMy : loadingAll;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -90,9 +92,7 @@ const Index = () => {
             <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center group-hover:bg-primary/15 transition-colors">
               <Users className="w-5 h-5 text-primary" />
             </div>
-            <span className="text-xl font-bold text-foreground">
-              Follow Packs
-            </span>
+            <span className="text-xl font-bold text-foreground">Follow Packs</span>
           </a>
 
           <LoginArea className="max-w-60" />
@@ -106,12 +106,10 @@ const Index = () => {
           <div className="absolute top-0 right-0 w-96 h-96 -z-10 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4" />
 
           <div className="max-w-6xl mx-auto px-4 py-16 text-center">
-            <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-4 tracking-tight">
-              Nostr Follow Packs
-            </h1>
+            <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-4 tracking-tight">Nostr Follow Packs</h1>
             <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              Discover and share curated lists of Nostr users to follow.
-              Find the users that are most interesting to you or create your own lists.
+              Discover and share curated lists of Nostr users to follow. Find the users that are most interesting to you
+              or create your own lists.
             </p>
 
             <div className="mt-8">
@@ -126,11 +124,7 @@ const Index = () => {
                 </Button>
               ) : (
                 <div className="space-y-3">
-                  <Button
-                    size="lg"
-                    disabled
-                    className="rounded-full px-8 text-base h-12 opacity-50"
-                  >
+                  <Button size="lg" disabled className="rounded-full px-8 text-base h-12 opacity-50">
                     <Plus className="w-5 h-5 mr-2" />
                     Create New Follow Pack
                   </Button>
@@ -150,10 +144,18 @@ const Index = () => {
             {user && (
               <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <TabsList className="bg-muted/60">
-                  <TabsTrigger value="all" className="text-sm">All Packs</TabsTrigger>
-                  <TabsTrigger value="mine" className="text-sm">My Packs</TabsTrigger>
-                  <TabsTrigger value="in" className="text-sm">I'm In</TabsTrigger>
-                  <TabsTrigger value="following" className="text-sm">From Following</TabsTrigger>
+                  <TabsTrigger value="all" className="text-sm">
+                    All Packs
+                  </TabsTrigger>
+                  <TabsTrigger value="mine" className="text-sm">
+                    My Packs
+                  </TabsTrigger>
+                  <TabsTrigger value="in" className="text-sm">
+                    I'm In
+                  </TabsTrigger>
+                  <TabsTrigger value="following" className="text-sm">
+                    From Following
+                  </TabsTrigger>
                 </TabsList>
               </Tabs>
             )}
@@ -178,27 +180,27 @@ const Index = () => {
                 <Users className="w-8 h-8 text-muted-foreground" />
               </div>
               <h3 className="text-lg font-medium text-foreground mb-2">
-                {activeTab === 'mine' ? 'No follow packs yet'
-                  : activeTab === 'in' ? "You're not in any packs yet"
-                  : activeTab === 'following' ? 'No packs from people you follow'
-                  : 'No packs found'}
+                {activeTab === "mine"
+                  ? "No follow packs yet"
+                  : activeTab === "in"
+                    ? "You're not in any packs yet"
+                    : activeTab === "following"
+                      ? "No packs from people you follow"
+                      : "No packs found"}
               </h3>
               <p className="text-muted-foreground text-sm max-w-sm mx-auto">
-                {activeTab === 'mine'
+                {activeTab === "mine"
                   ? "You haven't created any follow packs. Create one to get started!"
-                  : activeTab === 'in'
-                  ? "You haven't been added to any follow packs yet."
-                  : activeTab === 'following'
-                  ? "People you follow haven't created any packs yet."
-                  : searchFilter
-                  ? 'Try adjusting your search terms.'
-                  : 'Be the first to create a follow pack!'}
+                  : activeTab === "in"
+                    ? "You haven't been added to any follow packs yet."
+                    : activeTab === "following"
+                      ? "People you follow haven't created any packs yet."
+                      : searchFilter
+                        ? "Try adjusting your search terms."
+                        : "Be the first to create a follow pack!"}
               </p>
-              {activeTab === 'mine' && user && (
-                <Button
-                  onClick={() => setCreateOpen(true)}
-                  className="mt-4 rounded-full"
-                >
+              {activeTab === "mine" && user && (
+                <Button onClick={() => setCreateOpen(true)} className="mt-4 rounded-full">
                   <Plus className="w-4 h-4 mr-2" />
                   Create Pack
                 </Button>
@@ -218,8 +220,7 @@ const Index = () => {
       <footer className="bg-card border-t">
         <div className="max-w-6xl mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
           <p>
-            <span className="font-medium text-foreground">Follow Packs</span>
-            {' '}— Made with love by{' '}
+            <span className="font-medium text-foreground">Follow Packs</span> . Made with love by{" "}
             <a
               href="https://neo21.dev"
               target="_blank"
