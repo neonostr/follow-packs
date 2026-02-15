@@ -57,14 +57,14 @@ function MemberRow({
 
   return (
     <div className="flex items-center gap-3 py-3 px-4 hover:bg-accent/50 rounded-lg transition-colors animate-fade-in">
-      <Avatar className="w-10 h-10">
+      <Avatar className="w-10 h-10 shrink-0">
         <AvatarImage src={metadata?.picture} alt={displayName} />
         <AvatarFallback className="bg-primary/10 text-primary text-sm">
           {displayName.charAt(0)}
         </AvatarFallback>
       </Avatar>
 
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 overflow-hidden">
         <p className="font-medium text-sm truncate">{displayName}</p>
         {metadata?.nip05 && (
           <p className="text-xs text-muted-foreground truncate">{metadata.nip05}</p>
@@ -74,34 +74,32 @@ function MemberRow({
         )}
       </div>
 
-      <div className="flex items-center gap-2 shrink-0">
-        <a
-          href={`https://njump.me/${npub}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-muted-foreground hover:text-foreground transition-colors p-1"
-        >
-          <ExternalLink className="w-3.5 h-3.5" />
-        </a>
-        {!isOwnProfile && (
-          isFollowed ? (
-            <Button variant="outline" size="sm" className="text-xs rounded-full h-7 w-[100px] px-3" disabled>
-              <Check className="w-3 h-3 mr-1" />
-              Following
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              className="text-xs rounded-full h-7 w-[100px] px-3"
-              onClick={() => onFollow(pubkey)}
-              disabled={isFollowing}
-            >
-              <UserPlus className="w-3 h-3 mr-1" />
-              Follow
-            </Button>
-          )
-        )}
-      </div>
+      <a
+        href={`https://njump.me/${npub}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-muted-foreground hover:text-foreground transition-colors p-1 shrink-0"
+      >
+        <ExternalLink className="w-3.5 h-3.5" />
+      </a>
+      {!isOwnProfile && (
+        isFollowed ? (
+          <Button variant="outline" size="sm" className="text-xs rounded-full h-7 w-[100px] shrink-0" disabled>
+            <Check className="w-3 h-3 mr-1" />
+            Following
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            className="text-xs rounded-full h-7 w-[100px] shrink-0"
+            onClick={() => onFollow(pubkey)}
+            disabled={isFollowing}
+          >
+            <UserPlus className="w-3 h-3 mr-1" />
+            Follow
+          </Button>
+        )
+      )}
     </div>
   );
 }
