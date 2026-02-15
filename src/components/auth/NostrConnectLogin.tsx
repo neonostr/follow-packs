@@ -156,7 +156,6 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
 
       cleanupRef.current = () => {
         subCloser.close();
-        pool.close(NOSTRCONNECT_RELAYS);
       };
 
       console.info('NostrConnect QR generated', {
