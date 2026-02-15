@@ -191,12 +191,14 @@ const Index = () => {
         <div className="max-w-6xl mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
           <p>
             <span className="font-medium text-foreground">Follow Packs</span>
-            {' '}— Vibed with{' '}
+            {' '}— Made with love by{' '}
             <a
-              href="https://shakespeare.diy"
+              href="https://neo21.dev"
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-primary hover:text-primary/80 transition-colors font-medium"
             >
-              Shakespeare
+              Neo
             </a>
           </p>
         </div>
