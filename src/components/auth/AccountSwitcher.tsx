@@ -1,7 +1,7 @@
 // NOTE: This file is stable and usually should not be modified.
 // It is important that all functionality in this file is preserved, and should only be modified if explicitly requested.
 
-import { ChevronDown, LogOut, Package } from 'lucide-react';
+import { ChevronDown, LogOut, Package, User } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,6 +43,13 @@ export function AccountSwitcher(_props: AccountSwitcherProps) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className='w-56 p-2 animate-scale-in'>
+        <DropdownMenuItem
+          onClick={() => navigate('/profile')}
+          className='flex items-center gap-2 cursor-pointer p-2 rounded-md'
+        >
+          <User className='w-4 h-4' />
+          <span>Profile</span>
+        </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() => navigate('/?tab=mine')}
           className='flex items-center gap-2 cursor-pointer p-2 rounded-md'

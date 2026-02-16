@@ -3,6 +3,7 @@ import { ScrollToTop } from "./components/ScrollToTop";
 
 import Index from "./pages/Index";
 import PackDetail from "./pages/PackDetail";
+import Profile from "./pages/Profile";
 import { NIP19Page } from "./pages/NIP19Page";
 import NotFound from "./pages/NotFound";
 
@@ -12,6 +13,7 @@ export function AppRouter() {
       <ScrollToTop />
       <Routes>
         <Route path="/" element={<Index />} />
+        <Route path="/profile" element={<Profile />} />
         <Route path="/pack/:npub/:dTag" element={<PackDetail />} />
         {/* NIP-19 route for npub1, note1, naddr1, nevent1, nprofile1 */}
         <Route path="/:nip19" element={<NIP19Page />} />
