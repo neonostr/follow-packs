@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useSeoMeta } from "@unhead/react";
 import { Plus, Users, Search, PackagePlus, ChevronDown } from "lucide-react";
@@ -48,16 +48,11 @@ function PackGridSkeleton() {
 const Index = () => {
   const { user } = useCurrentUser();
   const [createOpen, setCreateOpen] = useState(false);
-  const [searchParams] = useSearchParams();
-  const tabFromUrl = searchParams.get('tab');
-  const [activeTab, setActiveTab] = useState<string>("all");
-
-  // React to URL tab param changes
-  useEffect(() => {
-    if (tabFromUrl && user) {
-      setActiveTab(tabFromUrl);
-    }
-  }, [tabFromUrl, user]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || "all";
+  const setActiveTab = (tab: string) => {
+    setSearchParams(tab === "all" ? {} : { tab }, { replace: true });
+  };
   const [searchFilter, setSearchFilter] = useState("");
 
   const { data: allPacks = [], isLoading: loadingAll } = useFollowPacks(100);
