@@ -274,12 +274,12 @@ const Index = () => {
       <footer className="bg-card border-t">
         <div className="max-w-6xl mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
           <p>
-            <span className="font-medium text-foreground">Follow Packs</span> - Made with love by{" "}
+            Follow Packs — Made with love by{" "}
             <a
               href="https://neo21.dev"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-primary hover:text-primary/80 transition-colors font-medium"
+              className="relative text-muted-foreground transition-colors hover:text-foreground after:absolute after:left-0 after:bottom-0 after:h-[2px] after:w-0 after:bg-primary after:transition-all after:duration-300 hover:after:w-full"
             >
               Neo
             </a>
