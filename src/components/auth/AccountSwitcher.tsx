@@ -18,7 +18,7 @@ interface AccountSwitcherProps {
   onAddAccountClick?: () => void;
 }
 
-export function AccountSwitcher({ onAddAccountClick }: AccountSwitcherProps) {
+export function AccountSwitcher(_props: AccountSwitcherProps) {
   const { currentUser, clearLogins } = useLoggedInAccounts();
   const navigate = useNavigate();
 
@@ -44,7 +44,7 @@ export function AccountSwitcher({ onAddAccountClick }: AccountSwitcherProps) {
       </DropdownMenuTrigger>
       <DropdownMenuContent className='w-56 p-2 animate-scale-in'>
         <DropdownMenuItem
-          onClick={() => navigate('/?tab=my-packs')}
+          onClick={() => navigate('/?tab=mine')}
           className='flex items-center gap-2 cursor-pointer p-2 rounded-md'
         >
           <Package className='w-4 h-4' />
