@@ -1,2 +1,4 @@
 User-agent: *
 Allow: /
+
+Sitemap: https://followpacks.com/sitemap.xml
