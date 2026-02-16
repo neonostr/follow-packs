@@ -6,21 +6,41 @@ import { setCachedAuthor } from '@/lib/authorCache';
 
 const BATCH_SIZE = 15;
 const QUERY_TIMEOUT = 6000;
+const MAX_RETRIES = 5;
+const BASE_DELAY = 2000;
 
 export function usePrefetchAuthors(pubkeys: string[]) {
   const { nostr } = useNostr();
   const queryClient = useQueryClient();
   const abortRef = useRef<AbortController | null>(null);
 
-  const fetchBatch = useCallback(async (pks: string[], signal: AbortSignal) => {
+  const fetchBatch = useCallback(async (pks: string[], signal: AbortSignal): Promise<Set<string>> => {
+    const resolved = new Set<string>();
     try {
-      const events = await nostr.query(
-        [{ kinds: [0], authors: pks, limit: pks.length }],
-        { signal: AbortSignal.any([signal, AbortSignal.timeout(QUERY_TIMEOUT)]) },
+      // Split into chunks
+      const chunks: string[][] = [];
+      for (let i = 0; i < pks.length; i += BATCH_SIZE) {
+        chunks.push(pks.slice(i, i + BATCH_SIZE));
+      }
+
+      const results = await Promise.all(
+        chunks.map(async (chunk) => {
+          try {
+            return await nostr.query(
+              [{ kinds: [0], authors: chunk, limit: chunk.length }],
+              { signal: AbortSignal.any([signal, AbortSignal.timeout(QUERY_TIMEOUT)]) },
+            );
+          } catch {
+            return [];
+          }
+        }),
       );
 
-      const latest = new Map<string, typeof events[0]>();
-      for (const event of events) {
+      const allEvents = results.flat();
+
+      // Keep only latest per pubkey
+      const latest = new Map<string, typeof allEvents[0]>();
+      for (const event of allEvents) {
         const existing = latest.get(event.pubkey);
         if (!existing || event.created_at > existing.created_at) {
           latest.set(event.pubkey, event);
@@ -32,59 +52,43 @@ export function usePrefetchAuthors(pubkeys: string[]) {
           const metadata = n.json().pipe(n.metadata()).parse(event.content);
           queryClient.setQueryData(['author', pubkey], { metadata, event });
           setCachedAuthor(pubkey, metadata, event.content, event.created_at);
+          resolved.add(pubkey);
         } catch {
           // Skip invalid metadata
         }
       }
-
-      return latest;
     } catch {
-      return new Map();
+      // Batch failed entirely
     }
+    return resolved;
   }, [nostr, queryClient]);
 
   useEffect(() => {
     if (!pubkeys.length) return;
-
-    // Only fetch pubkeys not already in React Query cache
-    const needed = pubkeys.filter((pk) => {
-      const cached = queryClient.getQueryData(['author', pk]);
-      return !cached;
-    });
-
-    if (!needed.length) return;
 
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
     (async () => {
-      // Split into chunks for relay compatibility
-      const chunks: string[][] = [];
-      for (let i = 0; i < needed.length; i += BATCH_SIZE) {
-        chunks.push(needed.slice(i, i + BATCH_SIZE));
-      }
+      let remaining = pubkeys.filter((pk) => !queryClient.getQueryData(['author', pk]));
 
-      // Fetch all chunks in parallel
-      const results = await Promise.all(
-        chunks.map((chunk) => fetchBatch(chunk, controller.signal)),
-      );
+      for (let attempt = 0; attempt < MAX_RETRIES && remaining.length > 0; attempt++) {
+        if (controller.signal.aborted) return;
 
-      if (controller.signal.aborted) return;
+        // Wait before retrying (skip delay on first attempt)
+        if (attempt > 0) {
+          const delay = BASE_DELAY * Math.pow(1.5, attempt - 1);
+          await new Promise((r) => setTimeout(r, delay));
+          if (controller.signal.aborted) return;
 
-      // Collect all resolved pubkeys
-      const resolved = new Set<string>();
-      for (const map of results) {
-        for (const pk of map.keys()) resolved.add(pk);
-      }
-
-      // Retry missing pubkeys individually after a short delay
-      const missing = needed.filter((pk) => !resolved.has(pk));
-      if (missing.length > 0 && missing.length <= 20) {
-        await new Promise((r) => setTimeout(r, 1500));
-        if (!controller.signal.aborted) {
-          await fetchBatch(missing, controller.signal);
+          // Re-check cache — individual useAuthor hooks may have resolved some
+          remaining = remaining.filter((pk) => !queryClient.getQueryData(['author', pk]));
+          if (!remaining.length) return;
         }
+
+        const resolved = await fetchBatch(remaining, controller.signal);
+        remaining = remaining.filter((pk) => !resolved.has(pk));
       }
     })();
 
