@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { NSchema as n } from '@nostrify/nostrify';
 import { useNostr } from '@nostrify/react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -13,11 +13,11 @@ export function usePrefetchAuthors(pubkeys: string[]) {
   const { nostr } = useNostr();
   const queryClient = useQueryClient();
   const abortRef = useRef<AbortController | null>(null);
+  const [isReady, setIsReady] = useState(false);
 
   const fetchBatch = useCallback(async (pks: string[], signal: AbortSignal): Promise<Set<string>> => {
     const resolved = new Set<string>();
     try {
-      // Split into chunks
       const chunks: string[][] = [];
       for (let i = 0; i < pks.length; i += BATCH_SIZE) {
         chunks.push(pks.slice(i, i + BATCH_SIZE));
@@ -38,7 +38,6 @@ export function usePrefetchAuthors(pubkeys: string[]) {
 
       const allEvents = results.flat();
 
-      // Keep only latest per pubkey
       const latest = new Map<string, typeof allEvents[0]>();
       for (const event of allEvents) {
         const existing = latest.get(event.pubkey);
@@ -64,34 +63,52 @@ export function usePrefetchAuthors(pubkeys: string[]) {
   }, [nostr, queryClient]);
 
   useEffect(() => {
-    if (!pubkeys.length) return;
+    if (!pubkeys.length) {
+      setIsReady(true);
+      return;
+    }
 
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    setIsReady(false);
 
     (async () => {
       let remaining = pubkeys.filter((pk) => !queryClient.getQueryData(['author', pk]));
 
+      if (!remaining.length) {
+        setIsReady(true);
+        return;
+      }
+
       for (let attempt = 0; attempt < MAX_RETRIES && remaining.length > 0; attempt++) {
         if (controller.signal.aborted) return;
 
-        // Wait before retrying (skip delay on first attempt)
         if (attempt > 0) {
           const delay = BASE_DELAY * Math.pow(1.5, attempt - 1);
           await new Promise((r) => setTimeout(r, delay));
           if (controller.signal.aborted) return;
 
-          // Re-check cache — individual useAuthor hooks may have resolved some
           remaining = remaining.filter((pk) => !queryClient.getQueryData(['author', pk]));
-          if (!remaining.length) return;
+          if (!remaining.length) break;
         }
 
         const resolved = await fetchBatch(remaining, controller.signal);
         remaining = remaining.filter((pk) => !resolved.has(pk));
+
+        // Mark ready after first batch completes
+        if (attempt === 0 && !controller.signal.aborted) {
+          setIsReady(true);
+        }
+      }
+
+      if (!controller.signal.aborted) {
+        setIsReady(true);
       }
     })();
 
     return () => controller.abort();
   }, [pubkeys.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return { isReady };
 }
