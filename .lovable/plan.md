@@ -1,43 +1,88 @@
 
 
-## Fix User Search: NIP-05 Resolution and Profile Display
+## Problem
 
-### Problems Identified
+Every avatar and username display triggers an **individual** relay query per pubkey via `useAuthor`. A pack with 34 members means 34 separate network requests, each with a 3-second timeout. Most fail or arrive slowly, leaving users staring at npub fallbacks and blank avatars. On repeat visits, the same slow queries run again from scratch because React Query's in-memory cache is lost on page reload.
 
-**Problem 1: NIP-05 search fails silently**
-The `resolveNip05` function fetches `https://{domain}/.well-known/nostr.json` directly from the browser. Most domains block this with CORS (no `Access-Control-Allow-Origin` header), so the fetch silently fails and returns `null`. The user sees no results.
+## Solution: Batch Fetching + Persistent Cache
 
-**Problem 2: NPub/selected members show wrong name and picture**
-When a user pastes an npub, `tryAddDirect()` decodes the pubkey and adds it to the selected list. The `SelectedMember` component then uses `useAuthor(pubkey)` which queries the **user's configured relays** (from NostrProvider). If those relays don't have the profile, it either fails (showing the random `genUserName` fallback like "Swift Fox") or returns stale/wrong data. Meanwhile, the search relays (`purplepag.es`, `relay.primal.net`) that actually have the profiles are never queried for these members.
+Two changes that work together:
 
-### Solution
+### 1. Batch Metadata Prefetcher
 
-#### 1. Fix NIP-05 resolution with a CORS-friendly approach
-- Instead of direct HTTP fetch (which hits CORS), resolve NIP-05 by querying relays that index NIP-05 data
-- Query `purplepag.es` and `relay.primal.net` with a filter for kind 0 events, then check the `nip05` field in the metadata to match
-- As a fallback, still attempt the direct HTTP fetch (some domains do allow CORS)
-- This makes NIP-05 search work reliably without depending on third-party CORS policies
+Create a hook `usePrefetchAuthors(pubkeys: string[])` that:
+- Takes an array of pubkeys and fires a **single** relay query: `{ kinds: [0], authors: [...allPubkeys] }`
+- Parses each returned event and **seeds the React Query cache** for `['author', pubkey]` per result
+- Called once when a pack loads (in `FollowPackCard`, `PackDetail`, `PackMemberAvatars`)
+- `useAuthor` continues to work as-is -- it just finds data already in cache
 
-#### 2. Fix profile display for selected members
-- When a user is added (via npub paste, search result click, or NIP-05), immediately seed the React Query cache with their profile data fetched from the search relays
-- Create a helper `fetchAndCacheProfile(pubkey)` that queries the search relays for kind 0 and writes the result into the `['author', pubkey]` query cache
-- This way, `SelectedMember`'s `useAuthor` hook instantly finds cached data instead of querying unreliable user relays
-- For npub paste specifically: decode the pubkey, fetch the profile from search relays, cache it, then add to selected list
+### 2. IndexedDB Persistent Author Cache
 
-#### 3. Clean up the spinner
-- Replace the conditional `{isSearching && ...}` div with a simple always-mounted element that toggles visibility via CSS class, preventing any layout shift
+Create `src/lib/authorCache.ts` using the already-installed `idb` package:
+- On every successful author metadata fetch, write `{ pubkey, metadata, picture, name, display_name, updatedAt }` to IndexedDB
+- Modify `useAuthor` to use IndexedDB data as `initialData` so the very first render shows cached names and pictures from previous sessions
+- Background relay query still runs and silently updates both React Query cache and IndexedDB if newer data arrives
 
-### Technical Details
+### Data Flow
 
-**Files to modify:**
+```text
+Page loads pack with 34 members
+       |
+       v
+usePrefetchAuthors(34 pubkeys)
+       |
+       +---> 1 relay query: { kinds: [0], authors: [pk1..pk34] }
+       |
+       v
+Parse events -> seed React Query cache for each pubkey
+       |
+       +---> Write each to IndexedDB for persistence
+       |
+       v
+Individual useAuthor(pk) hooks find data already cached
+       |
+       v
+On next visit: IndexedDB provides instant initialData
+               Background refresh updates silently
+```
 
-1. **`src/hooks/useSearchUsers.ts`**
-   - Add a new function `resolveNip05ViaRelays` that queries search relays for kind 0 events and filters by NIP-05 field in metadata
-   - Update the NIP-05 branch: try relay-based resolution first, fall back to HTTP fetch
-   - Export a `fetchProfileFromSearchRelays` function for use by the dialog
+## Technical Details
 
-2. **`src/components/CreatePackDialog.tsx`**
-   - When `tryAddDirect` successfully decodes an npub, fetch the profile from search relays and seed the `['author', pubkey]` cache before adding
-   - When a search result is clicked, seed the author cache with the already-fetched metadata (no extra network call needed)
-   - Fix the spinner to be always-mounted with opacity toggle
+### New file: `src/lib/authorCache.ts`
+
+IndexedDB store for author metadata using the `idb` package (already a dependency):
+- DB name: `nostr-author-cache-{hostname}` (same pattern as DM store)
+- Store: `authors`, keyed by pubkey
+- Schema: `{ pubkey, metadata, raw_content, updated_at }`
+- Functions: `getCachedAuthor(pubkey)`, `setCachedAuthor(pubkey, metadata, content)`, `getCachedAuthors(pubkeys[])`
+- Bulk read for batch scenarios
+
+### New hook: `src/hooks/usePrefetchAuthors.ts`
+
+- Accepts `pubkeys: string[]`
+- Deduplicates against existing React Query cache (skip pubkeys already cached)
+- Fires single batched query to relays
+- Seeds both React Query cache and IndexedDB
+- Uses `useEffect` so it runs once when pubkeys change
+
+### Modified: `src/hooks/useAuthor.ts`
+
+- On mount, synchronously check IndexedDB for cached data and use as `initialData`
+- Keep existing relay query as background refresh
+- On successful fetch, persist to IndexedDB
+- `staleTime` and `gcTime` remain as-is for in-session performance
+
+### Modified: `src/components/FollowPackCard.tsx`
+
+- Call `usePrefetchAuthors(pack.pubkeys)` at top of component so all member avatars and author line are pre-loaded
+
+### Modified: `src/pages/PackDetail.tsx`
+
+- Call `usePrefetchAuthors(pack.pubkeys)` once pack data is available so member rows render with data immediately
+
+### Modified: `src/components/PackMemberAvatars.tsx`
+
+- Call `usePrefetchAuthors(displayed)` for the visible subset so avatars on overview cards load reliably
+
+No changes to the relay setup, NPool configuration, or existing UI components beyond adding the prefetch calls.
 
