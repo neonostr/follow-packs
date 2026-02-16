@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useSeoMeta } from "@unhead/react";
 import { Plus, Users, Search, PackagePlus, ChevronDown } from "lucide-react";
 
@@ -47,7 +48,8 @@ function PackGridSkeleton() {
 const Index = () => {
   const { user } = useCurrentUser();
   const [createOpen, setCreateOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<string>("all");
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<string>(searchParams.get('tab') || "all");
   const [searchFilter, setSearchFilter] = useState("");
 
   const { data: allPacks = [], isLoading: loadingAll } = useFollowPacks(100);
