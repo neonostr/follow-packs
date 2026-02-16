@@ -18,16 +18,27 @@ export interface CachedAuthor {
 }
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
+let dbFailed = false;
 
 function getDB(): Promise<IDBPDatabase> {
+  if (dbFailed) return Promise.reject(new Error('IndexedDB unavailable'));
   if (!dbPromise) {
-    dbPromise = openDB(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME, { keyPath: 'pubkey' });
-        }
-      },
-    });
+    try {
+      dbPromise = openDB(DB_NAME, DB_VERSION, {
+        upgrade(db) {
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME, { keyPath: 'pubkey' });
+          }
+        },
+      }).catch((err) => {
+        dbFailed = true;
+        dbPromise = null;
+        throw err;
+      });
+    } catch {
+      dbFailed = true;
+      return Promise.reject(new Error('IndexedDB unavailable'));
+    }
   }
   return dbPromise;
 }
