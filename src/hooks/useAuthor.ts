@@ -7,19 +7,14 @@ import { getCachedAuthor, setCachedAuthor } from '@/lib/authorCache';
 export function useAuthor(pubkey: string | undefined) {
   const { nostr } = useNostr();
   const [idbData, setIdbData] = useState<{ event?: NostrEvent; metadata?: NostrMetadata } | undefined>(undefined);
-  const [idbLoaded, setIdbLoaded] = useState(false);
 
-  // Load from IndexedDB on mount
+  // Load from IndexedDB on mount (non-blocking)
   useEffect(() => {
-    if (!pubkey) {
-      setIdbLoaded(true);
-      return;
-    }
+    if (!pubkey) return;
     getCachedAuthor(pubkey).then((cached) => {
       if (cached) {
         setIdbData({ metadata: cached.metadata });
       }
-      setIdbLoaded(true);
     });
   }, [pubkey]);
 
@@ -41,7 +36,6 @@ export function useAuthor(pubkey: string | undefined) {
 
       try {
         const metadata = n.json().pipe(n.metadata()).parse(event.content);
-        // Persist to IndexedDB
         setCachedAuthor(pubkey, metadata, event.content, event.created_at);
         return { metadata, event };
       } catch {
@@ -52,6 +46,5 @@ export function useAuthor(pubkey: string | undefined) {
     gcTime: 30 * 60 * 1000,
     retry: 3,
     placeholderData: (prev) => prev ?? idbData,
-    enabled: idbLoaded,
   });
 }
