@@ -247,6 +247,14 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
                       tryAddDirect(val);
                     }
                   }}
+                  onPaste={(e) => {
+                    const pasted = e.clipboardData.getData('text');
+                    if (pasted) {
+                      e.preventDefault();
+                      setSearchQuery(pasted);
+                      tryAddDirect(pasted);
+                    }
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();
