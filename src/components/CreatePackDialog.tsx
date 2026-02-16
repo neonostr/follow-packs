@@ -243,9 +243,7 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
                   }}
                   className="pl-9 pr-9 rounded-lg h-10"
                 />
-                {isSearching && (
-                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground animate-spin" />
-                )}
+                <Loader2 className={`absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground animate-spin transition-opacity ${isSearching ? 'opacity-100' : 'opacity-0'}`} />
               </div>
 
               {/* Search results */}
