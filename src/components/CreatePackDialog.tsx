@@ -75,7 +75,7 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
     setSelectedPubkeys((prev) => prev.filter((pk) => pk !== pubkey));
   }, []);
 
-  const tryAddDirect = useCallback((input: string): boolean => {
+  const tryAddDirect = useCallback(async (input: string): Promise<boolean> => {
     const trimmed = input.trim();
     if (!trimmed) return false;
 
@@ -95,8 +95,8 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
     }
 
     if (pubkey) {
-      // Fetch profile from search relays and cache it before adding
-      fetchAndCacheProfile(pubkey, queryClient);
+      // Await profile fetch so cache is seeded BEFORE SelectedMember renders
+      await fetchAndCacheProfile(pubkey, queryClient);
       addPubkey(pubkey);
       return true;
     }
