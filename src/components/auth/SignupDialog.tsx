@@ -11,6 +11,7 @@ import { toast } from '@/hooks/useToast';
 import { useLoginActions } from '@/hooks/useLoginActions';
 import { useNostrPublish } from '@/hooks/useNostrPublish';
 import { useUploadFile } from '@/hooks/useUploadFile';
+import { useQueryClient } from '@tanstack/react-query';
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 
 interface SignupDialogProps {
@@ -30,6 +31,7 @@ const SignupDialog: React.FC<SignupDialogProps> = ({ isOpen, onClose }) => {
   const login = useLoginActions();
   const { mutateAsync: publishEvent, isPending: isPublishing } = useNostrPublish();
   const { mutateAsync: uploadFile, isPending: isUploading } = useUploadFile();
+  const queryClient = useQueryClient();
   const avatarFileInputRef = useRef<HTMLInputElement>(null);
 
   // Generate a proper nsec key using nostr-tools
@@ -134,6 +136,14 @@ const SignupDialog: React.FC<SignupDialogProps> = ({ isOpen, onClose }) => {
           kind: 0,
           content: JSON.stringify(metadata),
         });
+
+        // Invalidate author caches so the header immediately shows the new name/picture
+        const decoded = nip19.decode(nsec);
+        if (decoded.type === 'nsec') {
+          const pubkey = getPublicKey(decoded.data);
+          queryClient.invalidateQueries({ queryKey: ['author', pubkey] });
+        }
+        queryClient.invalidateQueries({ queryKey: ['nostr', 'logins'] });
       }
     } catch {
       toast({
