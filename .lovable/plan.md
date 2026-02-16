@@ -1,88 +1,113 @@
 
 
-## Problem
+## Problem Analysis
 
-Every avatar and username display triggers an **individual** relay query per pubkey via `useAuthor`. A pack with 34 members means 34 separate network requests, each with a 3-second timeout. Most fail or arrive slowly, leaving users staring at npub fallbacks and blank avatars. On repeat visits, the same slow queries run again from scratch because React Query's in-memory cache is lost on page reload.
+There are three major bottlenecks causing sluggish loading:
 
-## Solution: Batch Fetching + Persistent Cache
+1. **Duplicated prefetch calls**: Every `FollowPackCard` (up to 20+ on screen) independently calls `usePrefetchAuthors` with its own retry loop. The same pubkey appearing in 5 different packs gets fetched 5 separate times.
 
-Two changes that work together:
+2. **No bulk IDB preload**: On returning visits, each `useAuthor` hook individually reads IndexedDB via an async `useEffect`, causing a render-with-nothing followed by a re-render. With 100+ authors on screen, that's 100+ individual IDB reads.
 
-### 1. Batch Metadata Prefetcher
+3. **Individual useAuthor relay queries still fire**: Even while `usePrefetchAuthors` is running, each `useAuthor` hook independently fires its own relay query with a 3s timeout -- doubling network traffic and competing for relay connections.
 
-Create a hook `usePrefetchAuthors(pubkeys: string[])` that:
-- Takes an array of pubkeys and fires a **single** relay query: `{ kinds: [0], authors: [...allPubkeys] }`
-- Parses each returned event and **seeds the React Query cache** for `['author', pubkey]` per result
-- Called once when a pack loads (in `FollowPackCard`, `PackDetail`, `PackMemberAvatars`)
-- `useAuthor` continues to work as-is -- it just finds data already in cache
+## Solution: Three Changes for 10x Improvement
 
-### 2. IndexedDB Persistent Author Cache
+### 1. Bulk IDB preload on startup (instant on return visits)
 
-Create `src/lib/authorCache.ts` using the already-installed `idb` package:
-- On every successful author metadata fetch, write `{ pubkey, metadata, picture, name, display_name, updatedAt }` to IndexedDB
-- Modify `useAuthor` to use IndexedDB data as `initialData` so the very first render shows cached names and pictures from previous sessions
-- Background relay query still runs and silently updates both React Query cache and IndexedDB if newer data arrives
+Add a `getAllCachedAuthors()` function that dumps the entire IndexedDB store in a single transaction. Call it once at the `Index` page level and seed ALL entries into React Query cache before any `useAuthor` hook fires. This means returning users see everything instantly -- zero network needed.
 
-### Data Flow
+### 2. Lift prefetch to page level with global dedup (one fetch instead of 20+)
 
-```text
-Page loads pack with 34 members
-       |
-       v
-usePrefetchAuthors(34 pubkeys)
-       |
-       +---> 1 relay query: { kinds: [0], authors: [pk1..pk34] }
-       |
-       v
-Parse events -> seed React Query cache for each pubkey
-       |
-       +---> Write each to IndexedDB for persistence
-       |
-       v
-Individual useAuthor(pk) hooks find data already cached
-       |
-       v
-On next visit: IndexedDB provides instant initialData
-               Background refresh updates silently
-```
+In `Index.tsx`, collect all unique pubkeys across ALL visible packs into one flat array. Call `usePrefetchAuthors` once with the full deduplicated set. Remove the per-card `usePrefetchAuthors` calls from `FollowPackCard` and `PackMemberAvatars`.
+
+### 3. Make useAuthor skip its own relay query when data is already cached
+
+If the React Query cache already has data for a pubkey (seeded by either IDB preload or batch prefetch), the individual `useAuthor` query should not fire a redundant relay request. This is achieved by keeping the existing `staleTime: 5min` but removing the per-component IDB `useEffect` (no longer needed since bulk preload handles it).
 
 ## Technical Details
 
-### New file: `src/lib/authorCache.ts`
+### Modified: `src/lib/authorCache.ts`
 
-IndexedDB store for author metadata using the `idb` package (already a dependency):
-- DB name: `nostr-author-cache-{hostname}` (same pattern as DM store)
-- Store: `authors`, keyed by pubkey
-- Schema: `{ pubkey, metadata, raw_content, updated_at }`
-- Functions: `getCachedAuthor(pubkey)`, `setCachedAuthor(pubkey, metadata, content)`, `getCachedAuthors(pubkeys[])`
-- Bulk read for batch scenarios
+Add one new function:
 
-### New hook: `src/hooks/usePrefetchAuthors.ts`
-
-- Accepts `pubkeys: string[]`
-- Deduplicates against existing React Query cache (skip pubkeys already cached)
-- Fires single batched query to relays
-- Seeds both React Query cache and IndexedDB
-- Uses `useEffect` so it runs once when pubkeys change
+```typescript
+export async function getAllCachedAuthors(): Promise<CachedAuthor[]> {
+  try {
+    const db = await getDB();
+    return await db.getAll(STORE_NAME);
+  } catch {
+    return [];
+  }
+}
+```
 
 ### Modified: `src/hooks/useAuthor.ts`
 
-- On mount, synchronously check IndexedDB for cached data and use as `initialData`
-- Keep existing relay query as background refresh
-- On successful fetch, persist to IndexedDB
-- `staleTime` and `gcTime` remain as-is for in-session performance
+Remove the `useState`/`useEffect` for individual IDB reads (bulk preload handles this now). Simplify to just the React Query hook with `placeholderData: (prev) => prev` so it uses whatever is already seeded in the cache:
+
+```typescript
+export function useAuthor(pubkey: string | undefined) {
+  const { nostr } = useNostr();
+
+  return useQuery({
+    queryKey: ['author', pubkey ?? ''],
+    queryFn: async ({ signal }) => {
+      // ... existing relay query logic unchanged ...
+    },
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    retry: 3,
+  });
+}
+```
+
+### Modified: `src/pages/Index.tsx`
+
+- On mount, call `getAllCachedAuthors()` and seed every entry into React Query cache (one IDB transaction instead of 100+ individual reads).
+- Compute a single deduplicated array of all pubkeys across all visible packs.
+- Call `usePrefetchAuthors(allUniquePubkeys)` once at the page level.
+- Include pack authors in the pubkey set too.
+
+```typescript
+// Bulk preload IDB cache on mount
+useEffect(() => {
+  getAllCachedAuthors().then((cached) => {
+    for (const entry of cached) {
+      queryClient.setQueryData(['author', entry.pubkey], {
+        metadata: entry.metadata,
+      });
+    }
+  });
+}, []);
+
+// Single deduplicated prefetch for ALL packs
+const allPubkeys = useMemo(() => {
+  const set = new Set<string>();
+  for (const pack of allPacks) {
+    set.add(pack.author);
+    for (const pk of pack.pubkeys) set.add(pk);
+  }
+  return [...set];
+}, [allPacks]);
+
+usePrefetchAuthors(allPubkeys);
+```
 
 ### Modified: `src/components/FollowPackCard.tsx`
 
-- Call `usePrefetchAuthors(pack.pubkeys)` at top of component so all member avatars and author line are pre-loaded
-
-### Modified: `src/pages/PackDetail.tsx`
-
-- Call `usePrefetchAuthors(pack.pubkeys)` once pack data is available so member rows render with data immediately
+Remove the `usePrefetchAuthors(pack.pubkeys)` call -- this is now handled at the page level.
 
 ### Modified: `src/components/PackMemberAvatars.tsx`
 
-- Call `usePrefetchAuthors(displayed)` for the visible subset so avatars on overview cards load reliably
+Remove the `usePrefetchAuthors(displayed)` call -- handled at page level.
 
-No changes to the relay setup, NPool configuration, or existing UI components beyond adding the prefetch calls.
+### Modified: `src/pages/PackDetail.tsx`
+
+Keep `usePrefetchAuthors` here (different page, different context). Also add the bulk IDB preload so the detail page is also instant on return visits.
+
+### Result
+
+- **Return visits**: Everything renders instantly from IDB (1 bulk read vs 100+ individual reads)
+- **First visit**: 1 batched relay query for all unique pubkeys across all packs (vs 20+ separate prefetch calls with overlapping pubkeys)
+- **No redundant relay traffic**: `useAuthor` finds data already in cache from either IDB preload or batch prefetch, so individual queries don't fire until `staleTime` expires
 
