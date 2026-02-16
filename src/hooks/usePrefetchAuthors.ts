@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { NSchema as n } from '@nostrify/nostrify';
 import { useNostr } from '@nostrify/react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -9,11 +9,13 @@ const QUERY_TIMEOUT = 6000;
 const MAX_RETRIES = 5;
 const BASE_DELAY = 2000;
 
+/** Set of pubkeys currently being batch-fetched. Individual useAuthor hooks check this to avoid competing queries. */
+export const prefetchingPubkeys = new Set<string>();
+
 export function usePrefetchAuthors(pubkeys: string[]) {
   const { nostr } = useNostr();
   const queryClient = useQueryClient();
   const abortRef = useRef<AbortController | null>(null);
-  const [isReady, setIsReady] = useState(false);
 
   const fetchBatch = useCallback(async (pks: string[], signal: AbortSignal): Promise<Set<string>> => {
     const resolved = new Set<string>();
@@ -63,23 +65,20 @@ export function usePrefetchAuthors(pubkeys: string[]) {
   }, [nostr, queryClient]);
 
   useEffect(() => {
-    if (!pubkeys.length) {
-      setIsReady(true);
-      return;
-    }
+    if (!pubkeys.length) return;
 
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
-    setIsReady(false);
+
+    // Mark all pubkeys as being prefetched so individual useAuthor hooks defer
+    const toFetch = pubkeys.filter((pk) => !queryClient.getQueryData(['author', pk]));
+    for (const pk of toFetch) {
+      prefetchingPubkeys.add(pk);
+    }
 
     (async () => {
-      let remaining = pubkeys.filter((pk) => !queryClient.getQueryData(['author', pk]));
-
-      if (!remaining.length) {
-        setIsReady(true);
-        return;
-      }
+      let remaining = [...toFetch];
 
       for (let attempt = 0; attempt < MAX_RETRIES && remaining.length > 0; attempt++) {
         if (controller.signal.aborted) return;
@@ -95,20 +94,19 @@ export function usePrefetchAuthors(pubkeys: string[]) {
 
         const resolved = await fetchBatch(remaining, controller.signal);
         remaining = remaining.filter((pk) => !resolved.has(pk));
-
-        // Mark ready after first batch completes
-        if (attempt === 0 && !controller.signal.aborted) {
-          setIsReady(true);
-        }
       }
 
-      if (!controller.signal.aborted) {
-        setIsReady(true);
+      // Unmark — any still-missing pubkeys can now be fetched individually
+      for (const pk of toFetch) {
+        prefetchingPubkeys.delete(pk);
       }
     })();
 
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      for (const pk of toFetch) {
+        prefetchingPubkeys.delete(pk);
+      }
+    };
   }, [pubkeys.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return { isReady };
 }

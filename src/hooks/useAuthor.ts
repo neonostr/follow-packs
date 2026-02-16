@@ -2,6 +2,7 @@ import { type NostrEvent, type NostrMetadata, NSchema as n } from '@nostrify/nos
 import { useNostr } from '@nostrify/react';
 import { useQuery } from '@tanstack/react-query';
 import { setCachedAuthor } from '@/lib/authorCache';
+import { prefetchingPubkeys } from '@/hooks/usePrefetchAuthors';
 
 export function useAuthor(pubkey: string | undefined) {
   const { nostr } = useNostr();
@@ -11,6 +12,25 @@ export function useAuthor(pubkey: string | undefined) {
     queryFn: async ({ signal }) => {
       if (!pubkey) {
         return {};
+      }
+
+      // If this pubkey is currently being batch-fetched, wait for the batch
+      // instead of firing a competing individual query
+      if (prefetchingPubkeys.has(pubkey)) {
+        await new Promise<void>((resolve) => {
+          const check = () => {
+            if (!prefetchingPubkeys.has(pubkey)) {
+              resolve();
+            } else {
+              setTimeout(check, 200);
+            }
+          };
+          // Also resolve if signal aborts
+          signal.addEventListener('abort', () => resolve());
+          check();
+        });
+        // After waiting, check if batch resolved it
+        if (signal.aborted) return {};
       }
 
       const [event] = await nostr.query(
