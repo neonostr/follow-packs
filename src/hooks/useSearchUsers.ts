@@ -52,31 +52,27 @@ export function useSearchUsers(query: string) {
     queryFn: async ({ signal }) => {
       if (!query || query.length < 2) return [];
 
-      const timeout = AbortSignal.any([signal, AbortSignal.timeout(6000)]);
-
-      // If it looks like a NIP-05, resolve it directly via HTTP
+      // If it looks like a NIP-05, resolve via HTTP then fetch profile from purplepag.es only
       if (isNip05Like(query.trim())) {
-        const pubkey = await resolveNip05(query.trim(), timeout);
-        if (pubkey) {
-          // Fetch the profile from purplepag.es (primary) with fallbacks
-          const relayGroup = nostr.group(SEARCH_RELAYS);
-          const events = await relayGroup.query(
-            [{ kinds: [0], authors: [pubkey], limit: 1 }],
-            { signal: timeout },
-          );
+        const pubkey = await resolveNip05(query.trim(), AbortSignal.any([signal, AbortSignal.timeout(3000)]));
+        if (!pubkey) return [];
 
-          return parseResults(events.length > 0 ? events : []);
-        }
-        return [];
+        // Fetch profile from purplepag.es only — fastest for kind 0
+        const purplepages = nostr.relay(SEARCH_RELAYS[0]);
+        const events = await purplepages.query(
+          [{ kinds: [0], authors: [pubkey], limit: 1 }],
+          { signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]) },
+        );
+
+        return parseResults(events);
       }
 
-      // For name search, query purplepag.es first, then fallbacks
-      // purplepag.es may not support NIP-50 search, so try all relays
+      // For name search, query all relays
       const relayGroup = nostr.group(SEARCH_RELAYS);
       try {
         const events = await relayGroup.query(
           [{ kinds: [0], search: query, limit: 20 }],
-          { signal: timeout },
+          { signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]) },
         );
         return parseResults(events);
       } catch {
