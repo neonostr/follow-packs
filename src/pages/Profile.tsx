@@ -19,7 +19,7 @@ export default function Profile() {
 
   if (!user) return null;
 
-  const displayName = metadata?.name ?? genUserName(user.pubkey);
+  const displayName = metadata?.display_name || metadata?.name || genUserName(user.pubkey);
 
   return (
     <div className="min-h-screen bg-background">
