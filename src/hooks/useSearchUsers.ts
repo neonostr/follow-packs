@@ -52,14 +52,14 @@ export function useSearchUsers(query: string) {
       console.log('[NIP-05] Resolving:', trimmed);
 
       try {
-        const pubkey = await resolveNip05(trimmed, AbortSignal.any([signal, AbortSignal.timeout(3000)]));
+        const pubkey = await resolveNip05(trimmed, AbortSignal.timeout(5000));
         console.log('[NIP-05] Resolved pubkey:', pubkey);
         if (!pubkey) return [];
 
         const relay = nostr.relay(PROFILE_RELAY);
         const events = await relay.query(
           [{ kinds: [0], authors: [pubkey], limit: 1 }],
-          { signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]) },
+          { signal: AbortSignal.timeout(5000) },
         );
         console.log('[NIP-05] Profile events from purplepag.es:', events.length);
 
