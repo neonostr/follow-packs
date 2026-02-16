@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useSeoMeta } from "@unhead/react";
 import { Plus, Users, Search, PackagePlus, ChevronDown } from "lucide-react";
@@ -49,7 +49,15 @@ const Index = () => {
   const { user } = useCurrentUser();
   const [createOpen, setCreateOpen] = useState(false);
   const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState<string>(searchParams.get('tab') || "all");
+  const tabFromUrl = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState<string>("all");
+
+  // React to URL tab param changes
+  useEffect(() => {
+    if (tabFromUrl && user) {
+      setActiveTab(tabFromUrl);
+    }
+  }, [tabFromUrl, user]);
   const [searchFilter, setSearchFilter] = useState("");
 
   const { data: allPacks = [], isLoading: loadingAll } = useFollowPacks(100);
