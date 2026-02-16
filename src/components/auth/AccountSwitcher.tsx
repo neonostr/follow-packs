@@ -25,7 +25,7 @@ export function AccountSwitcher(_props: AccountSwitcherProps) {
   if (!currentUser) return null;
 
   const getDisplayName = (account: Account): string => {
-    return account.metadata.name ?? genUserName(account.pubkey);
+    return account.metadata.display_name || account.metadata.name || genUserName(account.pubkey);
   }
 
   return (
