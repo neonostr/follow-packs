@@ -52,19 +52,22 @@ export function useSearchUsers(query: string) {
     queryFn: async ({ signal }) => {
       if (!query || query.length < 2) return [];
 
-      // If it looks like a NIP-05, resolve via HTTP then fetch profile from purplepag.es only
+      // If it looks like a NIP-05, try resolving via HTTP then fetch profile from purplepag.es
       if (isNip05Like(query.trim())) {
-        const pubkey = await resolveNip05(query.trim(), AbortSignal.any([signal, AbortSignal.timeout(3000)]));
-        if (!pubkey) return [];
-
-        // Fetch profile from purplepag.es only — fastest for kind 0
-        const purplepages = nostr.relay(SEARCH_RELAYS[0]);
-        const events = await purplepages.query(
-          [{ kinds: [0], authors: [pubkey], limit: 1 }],
-          { signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]) },
-        );
-
-        return parseResults(events);
+        try {
+          const pubkey = await resolveNip05(query.trim(), AbortSignal.any([signal, AbortSignal.timeout(3000)]));
+          if (pubkey) {
+            const purplepages = nostr.relay(SEARCH_RELAYS[0]);
+            const events = await purplepages.query(
+              [{ kinds: [0], authors: [pubkey], limit: 1 }],
+              { signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]) },
+            );
+            const results = parseResults(events);
+            if (results.length > 0) return results;
+          }
+        } catch {
+          // NIP-05 resolution failed (CORS, timeout, etc.) — fall through to name search
+        }
       }
 
       // For name search, query all relays
