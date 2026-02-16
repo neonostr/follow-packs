@@ -1,7 +1,6 @@
 import { type NostrEvent, type NostrMetadata, NSchema as n } from '@nostrify/nostrify';
 import { useNostr } from '@nostrify/react';
 import { useQuery } from '@tanstack/react-query';
-import { getSearchPool } from '@/lib/searchPool';
 
 export function useAuthor(pubkey: string | undefined) {
   const { nostr } = useNostr();
@@ -13,45 +12,10 @@ export function useAuthor(pubkey: string | undefined) {
         return {};
       }
 
-      // Race: query user's relays AND directory relays in parallel.
-      // First successful result with metadata wins.
-      const timeout = AbortSignal.any([signal, AbortSignal.timeout(8000)]);
-
-      const queryUserRelays = async (): Promise<NostrEvent | undefined> => {
-        try {
-          const [event] = await nostr.query(
-            [{ kinds: [0], authors: [pubkey], limit: 1 }],
-            { signal: AbortSignal.any([signal, AbortSignal.timeout(3000)]) },
-          );
-          return event;
-        } catch {
-          return undefined;
-        }
-      };
-
-      const querySearchRelays = async (): Promise<NostrEvent | undefined> => {
-        try {
-          const pool = getSearchPool();
-          const [event] = await pool.query(
-            [{ kinds: [0], authors: [pubkey], limit: 1 }],
-            { signal: timeout },
-          );
-          return event;
-        } catch {
-          return undefined;
-        }
-      };
-
-      // Run both in parallel, take the newest event
-      const [userEvent, searchEvent] = await Promise.all([
-        queryUserRelays(),
-        querySearchRelays(),
-      ]);
-
-      // Pick the most recent event
-      const event = [userEvent, searchEvent]
-        .filter((e): e is NostrEvent => !!e)
-        .sort((a, b) => b.created_at - a.created_at)[0];
+      const [event] = await nostr.query(
+        [{ kinds: [0], authors: [pubkey!], limit: 1 }],
+        { signal: AbortSignal.any([signal, AbortSignal.timeout(1500)]) },
+      );
 
       if (!event) {
         throw new Error('No event found');
@@ -64,9 +28,10 @@ export function useAuthor(pubkey: string | undefined) {
         return { event };
       }
     },
-    staleTime: 5 * 60 * 1000,
-    retry: 5,
-    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
+    staleTime: 5 * 60 * 1000, // Keep cached data fresh for 5 minutes
+    retry: 3,
+    // If data was seeded by fetchAndCacheProfile, use it as initialData-like behavior
+    // placeholderData keeps the seeded data while refetch happens in background
     placeholderData: (prev) => prev,
   });
 }

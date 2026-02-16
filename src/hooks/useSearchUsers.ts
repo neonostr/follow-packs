@@ -1,12 +1,44 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { NostrEvent, NostrMetadata } from '@nostrify/nostrify';
-import { NSchema as n } from '@nostrify/nostrify';
-import { getSearchPool } from '@/lib/searchPool';
+import { NSchema as n, NPool, NRelay1 } from '@nostrify/nostrify';
 
 export interface SearchResult {
   pubkey: string;
   event: NostrEvent;
   metadata: NostrMetadata;
+}
+
+const SEARCH_RELAYS = [
+  'wss://purplepag.es',
+  'wss://relay.primal.net',
+  'wss://relay.damus.io',
+];
+
+/** Create a one-off relay group for search queries */
+function createSearchPool(): NPool {
+  return new NPool({
+    open(url: string) {
+      return new NRelay1(url);
+    },
+    reqRouter(filters) {
+      const routes = new Map<string, typeof filters>();
+      for (const url of SEARCH_RELAYS) {
+        routes.set(url, filters);
+      }
+      return routes;
+    },
+    eventRouter() {
+      return SEARCH_RELAYS;
+    },
+  });
+}
+
+let _searchPool: NPool | undefined;
+function getSearchPool(): NPool {
+  if (!_searchPool) {
+    _searchPool = createSearchPool();
+  }
+  return _searchPool;
 }
 
 /**
