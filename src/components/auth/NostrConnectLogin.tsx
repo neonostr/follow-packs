@@ -12,9 +12,9 @@ import { useLoginActions } from '@/hooks/useLoginActions';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
 const NOSTRCONNECT_RELAYS = [
-  'wss://relay.nsec.app',
-  'wss://relay.nostr.band',
   'wss://relay.damus.io',
+  'wss://relay.primal.net',
+  'wss://relay.nsec.app',
 ];
 
 interface NostrConnectLoginProps {
