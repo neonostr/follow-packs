@@ -16,13 +16,19 @@ async function resolveNip05(nip05: string, signal: AbortSignal): Promise<string 
     if (!domain) return null;
 
     const url = `https://${domain}/.well-known/nostr.json?name=${encodeURIComponent(name)}`;
+    console.info('NIP-05 resolve:', url);
     const res = await fetch(url, { signal });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn('NIP-05 resolve failed:', res.status);
+      return null;
+    }
 
     const json = await res.json();
+    console.info('NIP-05 response:', JSON.stringify(json?.names));
     const pubkey = json?.names?.[name] ?? json?.names?.[name.toLowerCase()];
     return pubkey && typeof pubkey === 'string' ? pubkey : null;
-  } catch {
+  } catch (err) {
+    console.warn('NIP-05 resolve error:', err);
     return null;
   }
 }
