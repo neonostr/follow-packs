@@ -1,9 +1,27 @@
 import { type NostrEvent, type NostrMetadata, NSchema as n } from '@nostrify/nostrify';
 import { useNostr } from '@nostrify/react';
 import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { getCachedAuthor, setCachedAuthor } from '@/lib/authorCache';
 
 export function useAuthor(pubkey: string | undefined) {
   const { nostr } = useNostr();
+  const [idbData, setIdbData] = useState<{ event?: NostrEvent; metadata?: NostrMetadata } | undefined>(undefined);
+  const [idbLoaded, setIdbLoaded] = useState(false);
+
+  // Load from IndexedDB on mount
+  useEffect(() => {
+    if (!pubkey) {
+      setIdbLoaded(true);
+      return;
+    }
+    getCachedAuthor(pubkey).then((cached) => {
+      if (cached) {
+        setIdbData({ metadata: cached.metadata });
+      }
+      setIdbLoaded(true);
+    });
+  }, [pubkey]);
 
   return useQuery<{ event?: NostrEvent; metadata?: NostrMetadata }>({
     queryKey: ['author', pubkey ?? ''],
@@ -23,14 +41,17 @@ export function useAuthor(pubkey: string | undefined) {
 
       try {
         const metadata = n.json().pipe(n.metadata()).parse(event.content);
+        // Persist to IndexedDB
+        setCachedAuthor(pubkey, metadata, event.content, event.created_at);
         return { metadata, event };
       } catch {
         return { event };
       }
     },
     staleTime: 5 * 60 * 1000,
-    gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
+    gcTime: 30 * 60 * 1000,
     retry: 3,
-    placeholderData: (prev) => prev,
+    placeholderData: (prev) => prev ?? idbData,
+    enabled: idbLoaded,
   });
 }

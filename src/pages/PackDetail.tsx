@@ -35,6 +35,7 @@ import { useUserFollowList } from '@/hooks/useUserFollowList';
 import { useNostrPublish } from '@/hooks/useNostrPublish';
 import { genUserName } from '@/lib/genUserName';
 import { CreatePackDialog } from '@/components/CreatePackDialog';
+import { usePrefetchAuthors } from '@/hooks/usePrefetchAuthors';
 import NotFound from './NotFound';
 
 function MemberRow({
@@ -143,6 +144,7 @@ export default function PackDetail() {
   }
 
   const { data: pack, isLoading, error } = useFollowPack(authorPubkey, dTag);
+  usePrefetchAuthors(pack?.pubkeys ?? []);
   const { user } = useCurrentUser();
   const { data: myFollowList = [] } = useUserFollowList(user?.pubkey);
   const { mutateAsync: createEvent } = useNostrPublish();
