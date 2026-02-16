@@ -220,8 +220,8 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
               </Label>
 
               {/* Unified search input */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <div className="relative h-10">
+                <Search className="absolute left-3 top-3 w-4 h-4 text-muted-foreground pointer-events-none" />
                 <Input
                   placeholder="Search by name, NIP-05, or npub..."
                   value={searchQuery}
@@ -243,7 +243,11 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
                   }}
                   className="pl-9 pr-9 rounded-lg h-10"
                 />
-                <Loader2 className={`absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground animate-spin transition-opacity ${isSearching ? 'opacity-100' : 'opacity-0'}`} />
+                {isSearching && (
+                  <div className="absolute right-3 top-3 w-4 h-4">
+                    <div className="w-4 h-4 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full" style={{ animation: 'spin 0.6s linear infinite' }} />
+                  </div>
+                )}
               </div>
 
               {/* Search results */}
