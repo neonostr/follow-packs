@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button';
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -17,20 +16,22 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { Loader2, Upload } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Loader2, Upload, Camera } from 'lucide-react';
 import { NSchema as n, type NostrMetadata } from '@nostrify/nostrify';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUploadFile } from '@/hooks/useUploadFile';
+import { genUserName } from '@/lib/genUserName';
 
 export const EditProfileForm: React.FC = () => {
   const queryClient = useQueryClient();
-
   const { user, metadata } = useCurrentUser();
   const { mutateAsync: publishEvent, isPending } = useNostrPublish();
   const { mutateAsync: uploadFile, isPending: isUploading } = useUploadFile();
   const { toast } = useToast();
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize the form with default values
   const form = useForm<NostrMetadata>({
     resolver: zodResolver(n.metadata()),
     defaultValues: {
@@ -45,7 +46,6 @@ export const EditProfileForm: React.FC = () => {
     },
   });
 
-  // Update form values when user data is loaded
   useEffect(() => {
     if (metadata) {
       form.reset({
@@ -61,142 +61,202 @@ export const EditProfileForm: React.FC = () => {
     }
   }, [metadata, form]);
 
-  // Handle file uploads for profile picture and banner
-  const uploadPicture = async (file: File, field: 'picture' | 'banner') => {
+  const handleUpload = async (file: File, field: 'picture' | 'banner') => {
     try {
-      // The first tuple in the array contains the URL
       const [[_, url]] = await uploadFile(file);
       form.setValue(field, url);
       toast({
-        title: 'Success',
-        description: `${field === 'picture' ? 'Profile picture' : 'Banner'} uploaded successfully`,
+        title: 'Uploaded',
+        description: `${field === 'picture' ? 'Profile picture' : 'Banner'} uploaded.`,
       });
     } catch (error) {
       console.error(`Failed to upload ${field}:`, error);
       toast({
-        title: 'Error',
-        description: `Failed to upload ${field === 'picture' ? 'profile picture' : 'banner'}. Please try again.`,
+        title: 'Upload failed',
+        description: 'Please try again.',
         variant: 'destructive',
       });
     }
   };
 
   const onSubmit = async (values: NostrMetadata) => {
-    if (!user) {
-      toast({
-        title: 'Error',
-        description: 'You must be logged in to update your profile',
-        variant: 'destructive',
-      });
-      return;
-    }
+    if (!user) return;
 
     try {
-      // Combine existing metadata with new values
       const data = { ...metadata, ...values };
-
-      // Clean up empty values
       for (const key in data) {
-        if (data[key] === '') {
-          delete data[key];
-        }
+        if (data[key] === '') delete data[key];
       }
 
-      // Publish the metadata event (kind 0)
-      await publishEvent({
-        kind: 0,
-        content: JSON.stringify(data),
-      });
+      await publishEvent({ kind: 0, content: JSON.stringify(data) });
 
-      // Invalidate queries to refresh the data
       queryClient.invalidateQueries({ queryKey: ['logins'] });
       queryClient.invalidateQueries({ queryKey: ['author', user.pubkey] });
 
-      toast({
-        title: 'Success',
-        description: 'Your profile has been updated',
-      });
+      toast({ title: 'Profile updated' });
     } catch (error) {
       console.error('Failed to update profile:', error);
       toast({
         title: 'Error',
-        description: 'Failed to update your profile. Please try again.',
+        description: 'Failed to update profile.',
         variant: 'destructive',
       });
     }
   };
 
+  const watchPicture = form.watch('picture');
+  const watchBanner = form.watch('banner');
+  const displayName = metadata?.display_name || metadata?.name || (user ? genUserName(user.pubkey) : '');
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-        <FormField
-          control={form.control}
-          name="display_name"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Display Name</FormLabel>
-              <FormControl>
-                <Input placeholder="Your display name" {...field} />
-              </FormControl>
-              <FormDescription>
-                This is your display name shown to others (e.g. "Testing Tony").
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        {/* Banner + Avatar visual header */}
+        <div className="relative rounded-xl overflow-hidden border bg-card">
+          {/* Banner */}
+          <div
+            className="h-32 bg-muted relative cursor-pointer group"
+            onClick={() => bannerInputRef.current?.click()}
+          >
+            {watchBanner ? (
+              <img src={watchBanner} alt="Banner" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/20 to-primary/5" />
+            )}
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+              <Camera className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+            <input
+              type="file"
+              ref={bannerInputRef}
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleUpload(file, 'banner');
+              }}
+            />
+          </div>
 
-        <FormField
-          control={form.control}
-          name="name"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Username</FormLabel>
-              <FormControl>
-                <Input placeholder="your_username" {...field} />
-              </FormControl>
-              <FormDescription>
-                Your short username handle (e.g. "testingtony").
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="about"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Bio</FormLabel>
-              <FormControl>
-                <Textarea 
-                  placeholder="Tell others about yourself" 
-                  className="resize-none" 
-                  {...field} 
+          {/* Avatar overlapping banner */}
+          <div className="px-5 pb-4">
+            <div className="-mt-10 flex items-end gap-4">
+              <div
+                className="relative cursor-pointer group shrink-0"
+                onClick={() => avatarInputRef.current?.click()}
+              >
+                <Avatar className="w-20 h-20 border-4 border-card">
+                  <AvatarImage src={watchPicture} alt={displayName} />
+                  <AvatarFallback className="text-2xl bg-muted">{displayName.charAt(0)}</AvatarFallback>
+                </Avatar>
+                <div className="absolute inset-0 rounded-full bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                  <Camera className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+                <input
+                  type="file"
+                  ref={avatarInputRef}
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleUpload(file, 'picture');
+                  }}
                 />
-              </FormControl>
-              <FormDescription>
-                A short description about yourself.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+              </div>
+              <div className="pb-1 min-w-0">
+                <p className="font-semibold text-lg truncate">{displayName}</p>
+                {metadata?.nip05 && (
+                  <p className="text-sm text-muted-foreground truncate">{metadata.nip05}</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Basic Info Section */}
+        <fieldset className="space-y-4 rounded-xl border bg-card p-5">
+          <legend className="text-sm font-medium text-muted-foreground px-1">Basic Info</legend>
+
+          <FormField
+            control={form.control}
+            name="display_name"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Display Name</FormLabel>
+                <FormControl>
+                  <Input placeholder="e.g. Testing Tony" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="name"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Username</FormLabel>
+                <FormControl>
+                  <Input placeholder="e.g. testingtony" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="about"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Bio</FormLabel>
+                <FormControl>
+                  <Textarea
+                    placeholder="Tell others about yourself"
+                    className="resize-none min-h-[80px]"
+                    {...field}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </fieldset>
+
+        {/* Images Section */}
+        <fieldset className="space-y-4 rounded-xl border bg-card p-5">
+          <legend className="text-sm font-medium text-muted-foreground px-1">Images</legend>
+
           <FormField
             control={form.control}
             name="picture"
             render={({ field }) => (
-              <ImageUploadField
-                field={field}
-                label="Profile Picture"
-                placeholder="https://example.com/profile.jpg"
-                description="URL to your profile picture. You can upload an image or provide a URL."
-                previewType="square"
-                onUpload={(file) => uploadPicture(file, 'picture')}
-              />
+              <FormItem>
+                <FormLabel>Profile Picture URL</FormLabel>
+                <div className="flex gap-2">
+                  <FormControl>
+                    <Input
+                      placeholder="https://..."
+                      name={field.name}
+                      value={field.value ?? ''}
+                      onChange={e => field.onChange(e.target.value)}
+                      onBlur={field.onBlur}
+                      className="flex-1"
+                    />
+                  </FormControl>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0"
+                    onClick={() => avatarInputRef.current?.click()}
+                  >
+                    <Upload className="h-4 w-4" />
+                  </Button>
+                </div>
+                <FormMessage />
+              </FormItem>
             )}
           />
 
@@ -204,19 +264,39 @@ export const EditProfileForm: React.FC = () => {
             control={form.control}
             name="banner"
             render={({ field }) => (
-              <ImageUploadField
-                field={field}
-                label="Banner Image"
-                placeholder="https://example.com/banner.jpg"
-                description="URL to a wide banner image for your profile. You can upload an image or provide a URL."
-                previewType="wide"
-                onUpload={(file) => uploadPicture(file, 'banner')}
-              />
+              <FormItem>
+                <FormLabel>Banner Image URL</FormLabel>
+                <div className="flex gap-2">
+                  <FormControl>
+                    <Input
+                      placeholder="https://..."
+                      name={field.name}
+                      value={field.value ?? ''}
+                      onChange={e => field.onChange(e.target.value)}
+                      onBlur={field.onBlur}
+                      className="flex-1"
+                    />
+                  </FormControl>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0"
+                    onClick={() => bannerInputRef.current?.click()}
+                  >
+                    <Upload className="h-4 w-4" />
+                  </Button>
+                </div>
+                <FormMessage />
+              </FormItem>
             )}
           />
-        </div>
+        </fieldset>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Links & Verification */}
+        <fieldset className="space-y-4 rounded-xl border bg-card p-5">
+          <legend className="text-sm font-medium text-muted-foreground px-1">Links & Verification</legend>
+
           <FormField
             control={form.control}
             name="website"
@@ -226,9 +306,6 @@ export const EditProfileForm: React.FC = () => {
                 <FormControl>
                   <Input placeholder="https://yourwebsite.com" {...field} />
                 </FormControl>
-                <FormDescription>
-                  Your personal website or social media link.
-                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
@@ -243,126 +320,42 @@ export const EditProfileForm: React.FC = () => {
                 <FormControl>
                   <Input placeholder="you@example.com" {...field} />
                 </FormControl>
-                <FormDescription>
-                  Your verified Nostr identifier.
-                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
           />
-        </div>
+        </fieldset>
 
-        <FormField
-          control={form.control}
-          name="bot"
-          render={({ field }) => (
-            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-              <div className="space-y-0.5">
-                <FormLabel className="text-base">Bot Account</FormLabel>
-                <FormDescription>
-                  Mark this account as automated or a bot.
-                </FormDescription>
-              </div>
-              <FormControl>
-                <Switch
-                  checked={field.value}
-                  onCheckedChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
-          )}
-        />
+        {/* Advanced */}
+        <fieldset className="rounded-xl border bg-card p-5">
+          <legend className="text-sm font-medium text-muted-foreground px-1">Advanced</legend>
 
-        <Button 
-          type="submit" 
-          className="w-full md:w-auto" 
+          <FormField
+            control={form.control}
+            name="bot"
+            render={({ field }) => (
+              <FormItem className="flex flex-row items-center justify-between">
+                <div className="space-y-0.5">
+                  <FormLabel>Bot Account</FormLabel>
+                  <p className="text-sm text-muted-foreground">Mark this as an automated account.</p>
+                </div>
+                <FormControl>
+                  <Switch checked={field.value} onCheckedChange={field.onChange} />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+        </fieldset>
+
+        <Button
+          type="submit"
+          className="w-full"
           disabled={isPending || isUploading}
         >
-          {(isPending || isUploading) && (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          )}
+          {(isPending || isUploading) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Save Profile
         </Button>
       </form>
     </Form>
-  );
-};
-
-// Reusable component for image upload fields
-interface ImageUploadFieldProps {
-  field: {
-    value: string | undefined;
-    onChange: (value: string) => void;
-    name: string;
-    onBlur: () => void;
-  };
-  label: string;
-  placeholder: string;
-  description: string;
-  previewType: 'square' | 'wide';
-  onUpload: (file: File) => void;
-}
-
-const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
-  field,
-  label,
-  placeholder,
-  description,
-  previewType,
-  onUpload,
-}) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  return (
-    <FormItem>
-      <FormLabel>{label}</FormLabel>
-      <div className="flex flex-col gap-2">
-        <FormControl>
-          <Input
-            placeholder={placeholder}
-            name={field.name}
-            value={field.value ?? ''}
-            onChange={e => field.onChange(e.target.value)}
-            onBlur={field.onBlur}
-          />
-        </FormControl>
-        <div className="flex items-center gap-2">
-          <input 
-            type="file" 
-            ref={fileInputRef}
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) {
-                onUpload(file);
-              }
-            }}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Upload className="h-4 w-4 mr-2" />
-            Upload Image
-          </Button>
-          {field.value && (
-            <div className={`h-10 ${previewType === 'square' ? 'w-10' : 'w-24'} rounded overflow-hidden`}>
-              <img 
-                src={field.value} 
-                alt={`${label} preview`} 
-                className="h-full w-full object-cover"
-              />
-            </div>
-          )}
-        </div>
-      </div>
-      <FormDescription>
-        {description}
-      </FormDescription>
-      <FormMessage />
-    </FormItem>
   );
 };
