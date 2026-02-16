@@ -149,46 +149,46 @@ const Index = () => {
           <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="rounded-full bg-card gap-2">
+                <Button variant="outline" size="lg" className="rounded-full bg-card gap-2 text-base px-6 h-12">
                   {activeTab === "all" ? "All Packs" : activeTab === "mine" ? "My Packs" : activeTab === "in" ? "Packs I'm In" : "From People I Follow"}
-                  <ChevronDown className="w-4 h-4" />
+                  <ChevronDown className="w-5 h-5" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48">
-                <DropdownMenuItem onClick={() => setActiveTab("all")}>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuItem className="text-base py-2.5" onClick={() => setActiveTab("all")}>
                   All Packs
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={!user}
                   onClick={() => user && setActiveTab("mine")}
-                  className={!user ? "opacity-50" : ""}
+                  className={`text-base py-2.5 ${!user ? "opacity-50" : ""}`}
                 >
                   My Packs
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={!user}
                   onClick={() => user && setActiveTab("in")}
-                  className={!user ? "opacity-50" : ""}
+                  className={`text-base py-2.5 ${!user ? "opacity-50" : ""}`}
                 >
                   Packs I'm In
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={!user}
                   onClick={() => user && setActiveTab("following")}
-                  className={!user ? "opacity-50" : ""}
+                  className={`text-base py-2.5 ${!user ? "opacity-50" : ""}`}
                 >
                   From People I Follow
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <div className="relative sm:ml-auto w-full sm:w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <div className="relative sm:ml-auto w-full sm:w-96">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
               <Input
                 placeholder="Search packs..."
                 value={searchFilter}
                 onChange={(e) => setSearchFilter(e.target.value)}
-                className="pl-9 rounded-full bg-card"
+                className="pl-11 rounded-full bg-card h-12 text-base"
               />
             </div>
           </div>
