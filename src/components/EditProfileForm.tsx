@@ -112,16 +112,16 @@ export const EditProfileForm: React.FC = () => {
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
         {/* Banner + Avatar visual header */}
-        <div className="relative rounded-xl overflow-hidden border bg-card">
+        <div className="rounded-xl overflow-hidden border bg-card">
           {/* Banner */}
           <div
-            className="h-32 bg-muted relative cursor-pointer group"
+            className="aspect-[3/1] bg-muted relative cursor-pointer group overflow-hidden"
             onClick={() => bannerInputRef.current?.click()}
           >
             {watchBanner ? (
-              <img src={watchBanner} alt="Banner" className="w-full h-full object-cover" />
+              <img src={watchBanner} alt="Banner" className="absolute inset-0 w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/20 to-primary/5" />
+              <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-primary/5" />
             )}
             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
               <Camera className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -138,37 +138,35 @@ export const EditProfileForm: React.FC = () => {
             />
           </div>
 
-          {/* Avatar overlapping banner */}
-          <div className="px-5 pb-4">
-            <div className="-mt-10 flex items-end gap-4">
-              <div
-                className="relative cursor-pointer group shrink-0"
-                onClick={() => avatarInputRef.current?.click()}
-              >
-                <Avatar className="w-20 h-20 border-4 border-card">
-                  <AvatarImage src={watchPicture} alt={displayName} />
-                  <AvatarFallback className="text-2xl bg-muted">{displayName.charAt(0)}</AvatarFallback>
-                </Avatar>
-                <div className="absolute inset-0 rounded-full bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
-                  <Camera className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-                <input
-                  type="file"
-                  ref={avatarInputRef}
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleUpload(file, 'picture');
-                  }}
-                />
+          {/* Avatar + name below banner */}
+          <div className="px-5 py-4 flex items-center gap-4">
+            <div
+              className="relative cursor-pointer group shrink-0"
+              onClick={() => avatarInputRef.current?.click()}
+            >
+              <Avatar className="w-16 h-16 border-2 border-border">
+                <AvatarImage src={watchPicture} alt={displayName} />
+                <AvatarFallback className="text-xl bg-muted">{displayName.charAt(0)}</AvatarFallback>
+              </Avatar>
+              <div className="absolute inset-0 rounded-full bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                <Camera className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
-              <div className="pb-1 min-w-0">
-                <p className="font-semibold text-lg truncate">{displayName}</p>
-                {metadata?.nip05 && (
-                  <p className="text-sm text-muted-foreground truncate">{metadata.nip05}</p>
-                )}
-              </div>
+              <input
+                type="file"
+                ref={avatarInputRef}
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleUpload(file, 'picture');
+                }}
+              />
+            </div>
+            <div className="min-w-0">
+              <p className="font-semibold text-lg truncate">{displayName}</p>
+              {metadata?.nip05 && (
+                <p className="text-sm text-muted-foreground truncate">{metadata.nip05}</p>
+              )}
             </div>
           </div>
         </div>
