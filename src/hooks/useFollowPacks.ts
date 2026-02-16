@@ -48,6 +48,7 @@ function scoreFollowPack(pack: FollowPack): number {
   if (pack.description.length > 0) score += 2;
   score += Math.min(pack.pubkeys.length, 10);
   if (pack.title.length >= 5) score += 1;
+  if (/\btest(ing)?\b/i.test(pack.title)) score -= 5;
   return score;
 }
 
