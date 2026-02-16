@@ -14,7 +14,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-
 import { LoginArea } from "@/components/auth/LoginArea";
 import { FollowPackCard } from "@/components/FollowPackCard";
 import { CreatePackDialog } from "@/components/CreatePackDialog";
@@ -53,7 +52,7 @@ const Index = () => {
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get('tab') || "all";
+  const activeTab = searchParams.get("tab") || "all";
   const setActiveTab = (tab: string) => {
     setSearchParams(tab === "all" ? {} : { tab }, { replace: true });
   };
@@ -67,7 +66,7 @@ const Index = () => {
   useEffect(() => {
     getAllCachedAuthors().then((cached) => {
       for (const entry of cached) {
-        queryClient.setQueryData(['author', entry.pubkey], {
+        queryClient.setQueryData(["author", entry.pubkey], {
           metadata: entry.metadata,
         });
       }
@@ -182,7 +181,13 @@ const Index = () => {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="lg" className="rounded-full bg-card gap-2 text-base px-6 h-12">
-                  {activeTab === "all" ? "All Packs" : activeTab === "mine" ? "My Packs" : activeTab === "in" ? "Packs I'm In" : "From People I Follow"}
+                  {activeTab === "all"
+                    ? "All Packs"
+                    : activeTab === "mine"
+                      ? "My Packs"
+                      : activeTab === "in"
+                        ? "Packs I'm In"
+                        : "From People I Follow"}
                   <ChevronDown className="w-5 h-5" />
                 </Button>
               </DropdownMenuTrigger>
@@ -274,7 +279,7 @@ const Index = () => {
       <footer className="bg-card border-t">
         <div className="max-w-6xl mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
           <p>
-            Follow Packs — Made with love by{" "}
+            Follow Packs - Made with love by{" "}
             <a
               href="https://neo21.dev"
               target="_blank"
