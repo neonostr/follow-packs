@@ -151,10 +151,10 @@ const Index = () => {
                     My Packs
                   </TabsTrigger>
                   <TabsTrigger value="in" className="text-sm">
-                    I'm In
+                    Packs I'm In
                   </TabsTrigger>
                   <TabsTrigger value="following" className="text-sm">
-                    From Following
+                    From People I Follow
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
