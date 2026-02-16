@@ -14,11 +14,11 @@ export function useAuthor(pubkey: string | undefined) {
 
       const [event] = await nostr.query(
         [{ kinds: [0], authors: [pubkey!], limit: 1 }],
-        { signal: AbortSignal.any([signal, AbortSignal.timeout(1500)]) },
+        { signal: AbortSignal.any([signal, AbortSignal.timeout(3000)]) },
       );
 
       if (!event) {
-        throw new Error('No event found');
+        return {};
       }
 
       try {
@@ -28,10 +28,9 @@ export function useAuthor(pubkey: string | undefined) {
         return { event };
       }
     },
-    staleTime: 5 * 60 * 1000, // Keep cached data fresh for 5 minutes
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
     retry: 3,
-    // If data was seeded by fetchAndCacheProfile, use it as initialData-like behavior
-    // placeholderData keeps the seeded data while refetch happens in background
     placeholderData: (prev) => prev,
   });
 }
