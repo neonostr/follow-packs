@@ -30,5 +30,8 @@ export function useAuthor(pubkey: string | undefined) {
     },
     staleTime: 5 * 60 * 1000, // Keep cached data fresh for 5 minutes
     retry: 3,
+    // If data was seeded by fetchAndCacheProfile, use it as initialData-like behavior
+    // placeholderData keeps the seeded data while refetch happens in background
+    placeholderData: (prev) => prev,
   });
 }

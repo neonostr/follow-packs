@@ -107,14 +107,27 @@ async function resolveNip05ViaRelays(
 
   if (!domain) return [];
 
-  // Use NIP-50 search to find profiles matching the domain
-  const events = await pool.query(
-    [{ kinds: [0], search: domain, limit: 30 }],
-    { signal },
+  // Search by username (NIP-50 indexes names, not domains)
+  // Also search by domain as secondary, run both in parallel
+  const searchTerms = name !== '_' ? [name, `${name}@${domain}`] : [domain];
+
+  const allEvents: NostrEvent[] = [];
+  await Promise.all(
+    searchTerms.map(async (term) => {
+      try {
+        const events = await pool.query(
+          [{ kinds: [0], search: term, limit: 30 }],
+          { signal },
+        );
+        allEvents.push(...events);
+      } catch {
+        // ignore individual search failures
+      }
+    }),
   );
 
   // Filter results to match the exact NIP-05 identifier
-  return parseResults(events).filter((r) => {
+  return parseResults(allEvents).filter((r) => {
     const userNip05 = r.metadata.nip05?.toLowerCase();
     if (!userNip05) return false;
 
