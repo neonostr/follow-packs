@@ -1,11 +1,17 @@
 import { useMemo, useState } from "react";
 import { useSeoMeta } from "@unhead/react";
-import { Plus, Users, Search, PackagePlus } from "lucide-react";
+import { Plus, Users, Search, PackagePlus, ChevronDown } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
 
 import { LoginArea } from "@/components/auth/LoginArea";
 import { FollowPackCard } from "@/components/FollowPackCard";
@@ -141,24 +147,40 @@ const Index = () => {
         <div className="max-w-6xl mx-auto px-4 pb-16">
           {/* Filter bar */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
-            {user && (
-              <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <TabsList className="bg-muted/60">
-                  <TabsTrigger value="all" className="text-sm">
-                    All Packs
-                  </TabsTrigger>
-                  <TabsTrigger value="mine" className="text-sm">
-                    My Packs
-                  </TabsTrigger>
-                  <TabsTrigger value="in" className="text-sm">
-                    Packs I'm In
-                  </TabsTrigger>
-                  <TabsTrigger value="following" className="text-sm">
-                    From People I Follow
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
-            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="rounded-full bg-card gap-2">
+                  {activeTab === "all" ? "All Packs" : activeTab === "mine" ? "My Packs" : activeTab === "in" ? "Packs I'm In" : "From People I Follow"}
+                  <ChevronDown className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-48">
+                <DropdownMenuItem onClick={() => setActiveTab("all")}>
+                  All Packs
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!user}
+                  onClick={() => user && setActiveTab("mine")}
+                  className={!user ? "opacity-50" : ""}
+                >
+                  My Packs
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!user}
+                  onClick={() => user && setActiveTab("in")}
+                  className={!user ? "opacity-50" : ""}
+                >
+                  Packs I'm In
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!user}
+                  onClick={() => user && setActiveTab("following")}
+                  className={!user ? "opacity-50" : ""}
+                >
+                  From People I Follow
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             <div className="relative sm:ml-auto w-full sm:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
