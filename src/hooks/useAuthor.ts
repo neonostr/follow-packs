@@ -1,22 +1,10 @@
 import { type NostrEvent, type NostrMetadata, NSchema as n } from '@nostrify/nostrify';
 import { useNostr } from '@nostrify/react';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-import { getCachedAuthor, setCachedAuthor } from '@/lib/authorCache';
+import { setCachedAuthor } from '@/lib/authorCache';
 
 export function useAuthor(pubkey: string | undefined) {
   const { nostr } = useNostr();
-  const [idbData, setIdbData] = useState<{ event?: NostrEvent; metadata?: NostrMetadata } | undefined>(undefined);
-
-  // Load from IndexedDB on mount (non-blocking)
-  useEffect(() => {
-    if (!pubkey) return;
-    getCachedAuthor(pubkey).then((cached) => {
-      if (cached) {
-        setIdbData({ metadata: cached.metadata });
-      }
-    });
-  }, [pubkey]);
 
   return useQuery<{ event?: NostrEvent; metadata?: NostrMetadata }>({
     queryKey: ['author', pubkey ?? ''],
@@ -45,6 +33,5 @@ export function useAuthor(pubkey: string | undefined) {
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     retry: 3,
-    placeholderData: (prev) => prev ?? idbData,
   });
 }

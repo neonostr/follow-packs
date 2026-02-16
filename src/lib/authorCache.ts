@@ -70,6 +70,15 @@ export async function getCachedAuthors(pubkeys: string[]): Promise<Map<string, C
   return result;
 }
 
+export async function getAllCachedAuthors(): Promise<CachedAuthor[]> {
+  try {
+    const db = await getDB();
+    return await db.getAll(STORE_NAME);
+  } catch {
+    return [];
+  }
+}
+
 export async function setCachedAuthor(
   pubkey: string,
   metadata: NostrMetadata,

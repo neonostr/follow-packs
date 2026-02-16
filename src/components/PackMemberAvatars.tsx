@@ -1,7 +1,6 @@
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { useAuthor } from '@/hooks/useAuthor';
 import { genUserName } from '@/lib/genUserName';
-import { usePrefetchAuthors } from '@/hooks/usePrefetchAuthors';
 
 function MemberAvatar({ pubkey }: { pubkey: string }) {
   const author = useAuthor(pubkey);
@@ -25,7 +24,6 @@ interface PackMemberAvatarsProps {
 
 export function PackMemberAvatars({ pubkeys, maxDisplay = 6 }: PackMemberAvatarsProps) {
   const displayed = pubkeys.slice(0, maxDisplay);
-  usePrefetchAuthors(displayed);
   const remaining = pubkeys.length - maxDisplay;
 
   return (
