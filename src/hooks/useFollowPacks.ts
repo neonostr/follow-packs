@@ -42,6 +42,15 @@ export function parseFollowPack(event: NostrEvent): FollowPack | null {
   };
 }
 
+function scoreFollowPack(pack: FollowPack): number {
+  let score = 0;
+  if (pack.image) score += 3;
+  if (pack.description.length > 0) score += 2;
+  score += Math.min(pack.pubkeys.length, 10);
+  if (pack.title.length >= 5) score += 1;
+  return score;
+}
+
 export function useFollowPacks(limit = 50) {
   const { nostr } = useNostr();
 
@@ -56,7 +65,10 @@ export function useFollowPacks(limit = 50) {
       return events
         .map(parseFollowPack)
         .filter((pack): pack is FollowPack => pack !== null && pack.title.length > 0 && pack.pubkeys.length > 0)
-        .sort((a, b) => b.createdAt - a.createdAt);
+        .sort((a, b) => {
+          const diff = scoreFollowPack(b) - scoreFollowPack(a);
+          return diff !== 0 ? diff : b.createdAt - a.createdAt;
+        });
     },
     staleTime: 60_000,
   });
@@ -84,7 +96,7 @@ export function useFollowPack(author: string | undefined, dTag: string | undefin
 }
 
 export function useMyFollowPacks() {
-  const { nostr } = useNostr();
+  const _nostr = useNostr();
 
   return useQuery<FollowPack[]>({
     queryKey: ['my-follow-packs'],
