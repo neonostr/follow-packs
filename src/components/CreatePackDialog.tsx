@@ -49,7 +49,6 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
   const [image, setImage] = useState(editPack?.image ?? '');
   const [selectedPubkeys, setSelectedPubkeys] = useState<string[]>(editPack?.pubkeys ?? []);
   const [searchQuery, setSearchQuery] = useState('');
-  const [npubInput, setNpubInput] = useState('');
 
   const { mutateAsync: createEvent, isPending: isPublishing } = useNostrPublish();
   const { data: searchResults = [], isLoading: isSearching } = useSearchUsers(searchQuery);
@@ -63,35 +62,31 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
       return [...prev, pubkey];
     });
     setSearchQuery('');
-    setNpubInput('');
   }, []);
 
   const removePubkey = useCallback((pubkey: string) => {
     setSelectedPubkeys((prev) => prev.filter((pk) => pk !== pubkey));
   }, []);
 
-  const handleAddNpub = () => {
-    const input = npubInput.trim();
-    if (!input) return;
+  const tryAddDirect = (input: string): boolean => {
+    const trimmed = input.trim();
+    if (!trimmed) return false;
 
     try {
-      let pubkey: string;
-      if (input.startsWith('npub1')) {
-        const decoded = nip19.decode(input);
+      if (trimmed.startsWith('npub1')) {
+        const decoded = nip19.decode(trimmed);
         if (decoded.type === 'npub') {
-          pubkey = decoded.data;
-        } else {
-          return;
+          addPubkey(decoded.data);
+          return true;
         }
-      } else if (/^[0-9a-f]{64}$/i.test(input)) {
-        pubkey = input.toLowerCase();
-      } else {
-        return;
+      } else if (/^[0-9a-f]{64}$/i.test(trimmed)) {
+        addPubkey(trimmed.toLowerCase());
+        return true;
       }
-      addPubkey(pubkey);
     } catch {
-      // Invalid npub
+      // Not a valid npub
     }
+    return false;
   };
 
   const handlePublish = async () => {
@@ -140,7 +135,6 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
       setSelectedPubkeys([]);
     }
     setSearchQuery('');
-    setNpubInput('');
   };
 
   const filteredResults = searchResults.filter(
@@ -225,13 +219,28 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
                 </div>
               </Label>
 
-              {/* Search input */}
+              {/* Unified search input */}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by name..."
+                  placeholder="Search by name, NIP-05, or npub..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSearchQuery(val);
+                    // Auto-add if user pastes an npub or hex key
+                    if (val.startsWith('npub1') && val.length >= 63) {
+                      tryAddDirect(val);
+                    } else if (/^[0-9a-f]{64}$/i.test(val.trim())) {
+                      tryAddDirect(val);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      tryAddDirect(searchQuery);
+                    }
+                  }}
                   className="pl-9 rounded-lg"
                 />
                 {isSearching && (
@@ -265,31 +274,6 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
                   ))}
                 </div>
               )}
-
-              {/* Add by npub */}
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Add by npub or hex pubkey..."
-                  value={npubInput}
-                  onChange={(e) => setNpubInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleAddNpub();
-                    }
-                  }}
-                  className="flex-1 rounded-lg text-sm"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleAddNpub}
-                  disabled={!npubInput.trim()}
-                  className="shrink-0"
-                >
-                  <Plus className="w-4 h-4" />
-                </Button>
-              </div>
             </div>
 
             {/* Selected members */}
