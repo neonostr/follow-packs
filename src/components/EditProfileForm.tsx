@@ -34,6 +34,7 @@ export const EditProfileForm: React.FC = () => {
   const form = useForm<NostrMetadata>({
     resolver: zodResolver(n.metadata()),
     defaultValues: {
+      display_name: '',
       name: '',
       about: '',
       picture: '',
@@ -48,6 +49,7 @@ export const EditProfileForm: React.FC = () => {
   useEffect(() => {
     if (metadata) {
       form.reset({
+        display_name: metadata.display_name || '',
         name: metadata.name || '',
         about: metadata.about || '',
         picture: metadata.picture || '',
@@ -129,15 +131,32 @@ export const EditProfileForm: React.FC = () => {
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
         <FormField
           control={form.control}
+          name="display_name"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Display Name</FormLabel>
+              <FormControl>
+                <Input placeholder="Your display name" {...field} />
+              </FormControl>
+              <FormDescription>
+                This is your display name shown to others (e.g. "Testing Tony").
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
           name="name"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Name</FormLabel>
+              <FormLabel>Username</FormLabel>
               <FormControl>
-                <Input placeholder="Your name" {...field} />
+                <Input placeholder="your_username" {...field} />
               </FormControl>
               <FormDescription>
-                This is your display name that will be displayed to others.
+                Your short username handle (e.g. "testingtony").
               </FormDescription>
               <FormMessage />
             </FormItem>
