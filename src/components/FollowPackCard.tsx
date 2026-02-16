@@ -6,7 +6,6 @@ import { useAuthor } from '@/hooks/useAuthor';
 import { genUserName } from '@/lib/genUserName';
 import type { FollowPack } from '@/hooks/useFollowPacks';
 import { PackMemberAvatars } from './PackMemberAvatars';
-import { usePrefetchAuthors } from '@/hooks/usePrefetchAuthors';
 
 interface FollowPackCardProps {
   pack: FollowPack;
@@ -29,7 +28,6 @@ function AuthorLine({ pubkey }: { pubkey: string }) {
 }
 
 export function FollowPackCard({ pack }: FollowPackCardProps) {
-  usePrefetchAuthors(pack.pubkeys);
   const npub = nip19.npubEncode(pack.author);
   const packUrl = `/pack/${npub}/${pack.dTag}`;
 
