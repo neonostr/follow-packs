@@ -223,7 +223,7 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
               <div className="relative h-10">
                 <Search className="absolute left-3 top-3 w-4 h-4 text-muted-foreground pointer-events-none" />
                 <Input
-                  placeholder="Search by name, NIP-05, or npub..."
+                  placeholder="Add by NIP-05 or npub..."
                   value={searchQuery}
                   onChange={(e) => {
                     const val = e.target.value;
