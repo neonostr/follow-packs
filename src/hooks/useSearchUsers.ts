@@ -3,17 +3,40 @@ import { useQuery } from '@tanstack/react-query';
 import type { NostrEvent, NostrMetadata } from '@nostrify/nostrify';
 import { NSchema as n } from '@nostrify/nostrify';
 
-const SEARCH_RELAYS = [
-  'wss://purplepag.es',
-  'wss://relay.primal.net',
-  'wss://relay.damus.io',
-];
-
 export interface SearchResult {
   pubkey: string;
   event: NostrEvent;
   metadata: NostrMetadata;
 }
+
+/** Resolve a NIP-05 identifier to a pubkey via HTTP */
+async function resolveNip05(nip05: string, signal: AbortSignal): Promise<string | null> {
+  try {
+    const [name, domain] = nip05.includes('@') ? nip05.split('@') : ['_', nip05];
+    if (!domain) return null;
+
+    const url = `https://${domain}/.well-known/nostr.json?name=${encodeURIComponent(name)}`;
+    const res = await fetch(url, { signal });
+    if (!res.ok) return null;
+
+    const json = await res.json();
+    const pubkey = json?.names?.[name] ?? json?.names?.[name.toLowerCase()];
+    return pubkey && typeof pubkey === 'string' ? pubkey : null;
+  } catch {
+    return null;
+  }
+}
+
+function isNip05Like(query: string): boolean {
+  // user@domain.tld or just domain.tld (implies _@domain.tld)
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(query) || /^[^@\s]+\.[^@\s]+$/.test(query);
+}
+
+const SEARCH_RELAYS = [
+  'wss://purplepag.es',
+  'wss://relay.primal.net',
+  'wss://relay.damus.io',
+];
 
 export function useSearchUsers(query: string) {
   const { nostr } = useNostr();
@@ -25,28 +48,30 @@ export function useSearchUsers(query: string) {
 
       const timeout = AbortSignal.any([signal, AbortSignal.timeout(6000)]);
 
-      // Try purplepag.es first (best for NIP-05 and metadata search)
-      try {
-        const primary = nostr.relay(SEARCH_RELAYS[0]);
-        const events = await primary.query(
-          [{ kinds: [0], search: query, limit: 20 }],
-          { signal: AbortSignal.any([signal, AbortSignal.timeout(3000)]) },
-        );
+      // If it looks like a NIP-05, resolve it directly via HTTP
+      if (isNip05Like(query.trim())) {
+        const pubkey = await resolveNip05(query.trim(), timeout);
+        if (pubkey) {
+          // Fetch the profile from purplepag.es (primary) with fallbacks
+          const relayGroup = nostr.group(SEARCH_RELAYS);
+          const events = await relayGroup.query(
+            [{ kinds: [0], authors: [pubkey], limit: 1 }],
+            { signal: timeout },
+          );
 
-        const results = parseResults(events);
-        if (results.length > 0) return results;
-      } catch {
-        // Primary relay failed, try fallbacks
+          return parseResults(events.length > 0 ? events : []);
+        }
+        return [];
       }
 
-      // Fallback: query primal and damus
+      // For name search, query purplepag.es first, then fallbacks
+      // purplepag.es may not support NIP-50 search, so try all relays
+      const relayGroup = nostr.group(SEARCH_RELAYS);
       try {
-        const fallback = nostr.group(SEARCH_RELAYS.slice(1));
-        const events = await fallback.query(
+        const events = await relayGroup.query(
           [{ kinds: [0], search: query, limit: 20 }],
           { signal: timeout },
         );
-
         return parseResults(events);
       } catch {
         return [];
