@@ -11,20 +11,22 @@ export interface SearchResult {
 
 /** Resolve a NIP-05 identifier to a pubkey via HTTP */
 async function resolveNip05(nip05: string, signal: AbortSignal): Promise<string | null> {
-  try {
-    const [name, domain] = nip05.includes('@') ? nip05.split('@') : ['_', nip05];
-    if (!domain) return null;
+  const [name, domain] = nip05.includes('@') ? nip05.split('@') : ['_', nip05];
+  if (!domain) return null;
 
-    const url = `https://${domain}/.well-known/nostr.json?name=${encodeURIComponent(name)}`;
-    const res = await fetch(url, { signal });
-    if (!res.ok) return null;
+  const url = `https://${domain}/.well-known/nostr.json?name=${encodeURIComponent(name)}`;
+  console.log('[NIP-05] Fetching:', url);
 
-    const json = await res.json();
-    const pubkey = json?.names?.[name] ?? json?.names?.[name.toLowerCase()];
-    return pubkey && typeof pubkey === 'string' ? pubkey : null;
-  } catch {
-    return null;
-  }
+  const res = await fetch(url, { signal });
+  console.log('[NIP-05] Response status:', res.status);
+
+  if (!res.ok) return null;
+
+  const json = await res.json();
+  console.log('[NIP-05] Names:', JSON.stringify(json?.names));
+
+  const pubkey = json?.names?.[name] ?? json?.names?.[name.toLowerCase()];
+  return pubkey && typeof pubkey === 'string' ? pubkey : null;
 }
 
 function isNip05Like(query: string): boolean {
@@ -42,18 +44,30 @@ export function useSearchUsers(query: string) {
     queryKey: ['search-users', trimmed],
     queryFn: async ({ signal }) => {
       if (!trimmed) return [];
-      if (!isNip05) return [];
+      if (!isNip05) {
+        console.log('[NIP-05] Not a NIP-05 identifier:', trimmed);
+        return [];
+      }
 
-      const pubkey = await resolveNip05(trimmed, AbortSignal.any([signal, AbortSignal.timeout(3000)]));
-      if (!pubkey) return [];
+      console.log('[NIP-05] Resolving:', trimmed);
 
-      const relay = nostr.relay(PROFILE_RELAY);
-      const events = await relay.query(
-        [{ kinds: [0], authors: [pubkey], limit: 1 }],
-        { signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]) },
-      );
+      try {
+        const pubkey = await resolveNip05(trimmed, AbortSignal.any([signal, AbortSignal.timeout(3000)]));
+        console.log('[NIP-05] Resolved pubkey:', pubkey);
+        if (!pubkey) return [];
 
-      return parseResults(events);
+        const relay = nostr.relay(PROFILE_RELAY);
+        const events = await relay.query(
+          [{ kinds: [0], authors: [pubkey], limit: 1 }],
+          { signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]) },
+        );
+        console.log('[NIP-05] Profile events from purplepag.es:', events.length);
+
+        return parseResults(events);
+      } catch (err) {
+        console.error('[NIP-05] Error:', err);
+        return [];
+      }
     },
     enabled: isNip05 && trimmed.length >= 3,
     staleTime: 60_000,
