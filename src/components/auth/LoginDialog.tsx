@@ -61,7 +61,11 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
       if (!('nostr' in window)) {
         throw new Error('Nostr extension not found. Please install a NIP-07 extension.');
       }
+      console.info('Extension login: requesting permission...');
       await login.extension();
+      console.info('Extension login: success, closing dialog...');
+      // Small delay to let login state propagate before closing
+      await new Promise(resolve => setTimeout(resolve, 300));
       onLogin();
       onClose();
     } catch (e: unknown) {
@@ -71,7 +75,6 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
         ...prev,
         extension: error instanceof Error ? error.message : 'Extension login failed'
       }));
-    } finally {
       setIsLoading(false);
     }
   };
@@ -80,10 +83,10 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
     setIsLoading(true);
     setErrors({});
 
-    // Use a timeout to allow the UI to update before the synchronous login call
-    setTimeout(() => {
+    setTimeout(async () => {
       try {
         login.nsec(key);
+        await new Promise(resolve => setTimeout(resolve, 300));
         onLogin();
         onClose();
       } catch {
@@ -121,17 +124,18 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
     setErrors(prev => ({ ...prev, bunker: undefined }));
 
     try {
+      console.info('Bunker login: connecting...');
       await login.bunker(bunkerUri);
+      console.info('Bunker login: success, closing dialog...');
+      await new Promise(resolve => setTimeout(resolve, 300));
       onLogin();
       onClose();
-      // Clear the URI from memory
       setBunkerUri('');
     } catch {
       setErrors(prev => ({
         ...prev,
         bunker: 'Failed to connect to bunker. Please check the URI.'
       }));
-    } finally {
       setIsLoading(false);
     }
   };
