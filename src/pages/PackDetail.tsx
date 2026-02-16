@@ -158,7 +158,7 @@ export default function PackDetail() {
   }, [queryClient]);
 
   const allPackPubkeys = [...(pack?.pubkeys ?? []), ...(authorPubkey ? [authorPubkey] : [])];
-  const { isReady: authorsReady } = usePrefetchAuthors(allPackPubkeys);
+  usePrefetchAuthors(allPackPubkeys);
   const { user } = useCurrentUser();
   const { data: myFollowList = [] } = useUserFollowList(user?.pubkey);
   const { mutateAsync: createEvent } = useNostrPublish();
@@ -361,28 +361,16 @@ export default function PackDetail() {
 
         {/* Member list */}
         <div className="mt-4 divide-y divide-border/50">
-          {!authorsReady ? (
-            Array.from({ length: pack.pubkeys.length }).map((_, i) => (
-              <div key={i} className="flex items-center gap-3 py-3 px-4">
-                <Skeleton className="w-10 h-10 rounded-full" />
-                <div className="flex-1 space-y-1">
-                  <Skeleton className="h-4 w-32" />
-                  <Skeleton className="h-3 w-24" />
-                </div>
-              </div>
-            ))
-          ) : (
-            pack.pubkeys.map((pk) => (
-              <MemberRow
-                key={pk}
-                pubkey={pk}
-                isFollowed={myFollowList.includes(pk)}
-                isOwnProfile={user?.pubkey === pk}
-                onFollow={handleFollowOne}
-                isFollowing={followingPk === pk}
-              />
-            ))
-          )}
+          {pack.pubkeys.map((pk) => (
+            <MemberRow
+              key={pk}
+              pubkey={pk}
+              isFollowed={myFollowList.includes(pk)}
+              isOwnProfile={user?.pubkey === pk}
+              onFollow={handleFollowOne}
+              isFollowing={followingPk === pk}
+            />
+          ))}
         </div>
       </div>
 
