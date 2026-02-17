@@ -1,76 +1,120 @@
 
 
-# Clean Rewrite of LoginDialog
+# Complete Login Module Rebuild
 
-## Why rewrite instead of patch
+## Overview
 
-The current LoginDialog has accumulated fragile patterns:
-- `setTimeout` wrapping async calls (causes unhandled rejections)
-- Removed `finally` blocks (loading state never resets on success)
-- Single shared `isLoading` boolean (one stuck method freezes everything)
-- No timeouts (extension/bunker can hang forever)
-- Mixed error state management
+Three empty files need to be rebuilt from scratch: `useLoginActions.ts`, `LoginArea.tsx`, and `LoginDialog.tsx`. The `NostrConnectLogin.tsx` component is removed -- NIP-46 will be built directly into LoginDialog.
 
-Adding more fixes on top will just create more spaghetti. A clean rewrite with correct patterns from the start is simpler and more reliable.
+All three login methods will be supported: NIP-07 (extension), nsec (secret key), and NIP-46 (remote signer via bunker URI and QR code).
 
-## What the new LoginDialog will do
+## Architecture
 
-Same UI, same features, but with rock-solid internals:
+The login module is three files with clear responsibilities:
 
-1. **Timeout protection** -- Extension login gets a 15s timeout, bunker gets 30s. If the user dismisses their extension popup or a bunker never responds, the UI recovers automatically.
+- **`useLoginActions`** -- thin wrapper around `@nostrify/react` library APIs (`NLogin.fromExtension()`, `NLogin.fromNsec()`, `NLogin.fromBunker()`). Calls `addLogin()` on success. Copied almost verbatim from the library's own example.
+- **`LoginArea`** -- presentational component. Shows "Log in" button when logged out (opens LoginDialog), shows AccountSwitcher when logged in. Accepts `className` prop.
+- **`LoginDialog`** -- the dialog with all three login methods. Handles UI state (errors, loading for bunker only). No artificial delays, no timeout wrappers, no busy states for instant methods.
 
-2. **Proper async/await everywhere** -- No more `setTimeout` hacks. Every login handler is a clean `async` function with `try/catch/finally`.
+## How Each Login Method Works
 
-3. **`finally` blocks guarantee reset** -- `isLoading` always resets to `false` no matter what happens (success, error, timeout).
+### Extension (NIP-07)
+1. User clicks "Log in with extension"
+2. Calls `login.extension()` which calls `NLogin.fromExtension()` which calls `window.nostr.getPublicKey()`
+3. Browser extension shows its own popup (instant)
+4. On approval, `addLogin()` fires, state updates, dialog closes because LoginArea sees user is now logged in
+5. **No loading state** -- the extension popup IS the feedback
+6. Error shown inline if extension not available
 
-4. **Cancel button** -- When a login is in progress, users can cancel and try again instead of being stuck.
+### nsec (Secret Key)
+1. User types/pastes nsec or uploads a `.nsec.txt` file
+2. Clicks "Log in"
+3. `NLogin.fromNsec(nsec)` validates and creates login (synchronous)
+4. `addLogin()` fires, done
+5. **No loading state** -- it's synchronous
+6. Error shown inline if nsec invalid
 
-5. **Clean state reset** -- All state resets when the dialog opens, including aborting any in-flight login.
+### Bunker (NIP-46) -- Two sub-flows:
 
-## What stays the same
+**A) Paste bunker URI:**
+1. User pastes `bunker://...` URI
+2. Clicks "Connect"
+3. `NLogin.fromBunker(uri, pool)` connects to remote signer (async, takes seconds)
+4. Loading indicator shown on button ("Connecting...")
+5. On success, `addLogin()` fires, done
+6. Error shown inline on failure
 
-- The visual design and layout (extension button, QR section, collapsible advanced options with key/bunker tabs)
-- `useLoginActions` hook -- works fine, no changes
-- `NostrConnectLogin` component -- separate component, no changes
-- `LoginArea` -- no changes
-- The 300ms propagation delay before closing (this is genuinely needed)
+**B) QR Code (client-initiated `nostrconnect://`):**
+1. User clicks a tab/section to show QR code
+2. App generates an ephemeral keypair and builds a `nostrconnect://` URI with the client's ephemeral pubkey, relay URLs, and app metadata
+3. QR code rendered using the `qrcode` package (already installed)
+4. App listens on relay for incoming `connect` response from the signer
+5. When signer scans and approves, the connection completes and `addLogin()` fires
+6. QR is clickable on touch devices (opens signer app directly)
 
-## Technical details
+## Technical Details
 
-### File: `src/components/auth/LoginDialog.tsx` (full rewrite)
+### File 1: `src/hooks/useLoginActions.ts`
 
-The new file will have:
+Exact copy of the library example with one adjustment: the bunker method receives `nostr` (the NPool) from `useNostr()`.
 
 ```
-Helper: withTimeout(promise, ms) 
-  - Races the promise against a timer
-  - Rejects with a clear "timed out" message
+import { useNostr } from '@nostrify/react';
+import { NLogin, useNostrLogin } from '@nostrify/react/login';
 
-State:
-  - loadingMethod: null | 'extension' | 'nsec' | 'bunker' (replaces single isLoading boolean)
-  - nsec, bunkerUri, errors (same as before)
+export function useLoginActions() {
+  const { nostr } = useNostr();
+  const { addLogin } = useNostrLogin();
 
-Handlers (all async, all with try/catch/finally):
-  - handleExtensionLogin: withTimeout(login.extension(), 15000)
-  - handleKeyLogin: validates then calls login.nsec() 
-  - handleBunkerLogin: withTimeout(login.bunker(uri), 30000)
-  - handleFileUpload: reads file, validates, calls login.nsec()
-
-Every handler follows the same pattern:
-  try {
-    setLoadingMethod('extension')
-    await withTimeout(login.extension(), 15000)
-    await delay(300)
-    onLogin()
-    onClose()
-  } catch (e) {
-    setErrors(...)
-  } finally {
-    setLoadingMethod(null)
-  }
+  return {
+    nsec(nsec: string): void {
+      const login = NLogin.fromNsec(nsec);
+      addLogin(login);
+    },
+    async bunker(uri: string): Promise<void> {
+      const login = await NLogin.fromBunker(uri, nostr);
+      addLogin(login);
+    },
+    async extension(): Promise<void> {
+      const login = await NLogin.fromExtension();
+      addLogin(login);
+    },
+  };
+}
 ```
 
-### No other files change
+### File 2: `src/components/auth/LoginArea.tsx`
 
-The problem is entirely isolated to `LoginDialog.tsx`. The hooks, providers, and other auth components are fine.
+Simple component:
+- Takes `className` prop
+- Uses `useCurrentUser()` to check login state
+- Logged out: renders a Button that opens LoginDialog
+- Logged in: renders AccountSwitcher
+- Manages LoginDialog open/close state locally
+
+### File 3: `src/components/auth/LoginDialog.tsx`
+
+Dialog with tabs for the three methods. State:
+- `error: string` -- shown below the active method
+- `bunkerLoading: boolean` -- only for the bunker connect flow
+- `nsecValue: string` -- input state
+- `bunkerUri: string` -- input state
+- `activeTab: 'extension' | 'key' | 'bunker'` -- which method is shown
+
+The NIP-46 QR code section:
+- Generates `nostrconnect://` URI on mount using an ephemeral keypair
+- Renders QR code via the `qrcode` package (canvas to data URL)
+- The QR URI contains: ephemeral pubkey, relay URLs from app config, app metadata (name: "Follow Packs", perms: sign_event,nip44_encrypt,nip44_decrypt)
+- Listens for incoming connect response on the relay
+- QR code is wrapped in an anchor tag for touch device deep-linking
+
+### File 4: `src/components/auth/NostrConnectLogin.tsx`
+
+Will be deleted (it's already empty). Its functionality is now part of LoginDialog.
+
+### No Other Files Change
+
+- `SignupDialog.tsx` imports `useLoginActions` -- will work once the hook is recreated
+- `CommentForm.tsx` and `Index.tsx` import `LoginArea` -- will work once the component is recreated
+- `useCurrentUser.ts`, `NostrProvider.tsx`, `AccountSwitcher.tsx` -- untouched, they work fine
 
