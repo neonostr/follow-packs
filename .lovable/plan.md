@@ -1,93 +1,76 @@
 
 
-# Clean Up: Remove Unnecessary Files from the Project
+# Clean Rewrite of LoginDialog
 
-## What gets removed
+## Why rewrite instead of patch
 
-### External AI tool configs (not part of your app)
-- `.claude/` folder (AI skill files for Claude)
-- `AGENTS.md` (1200+ line system prompt for AI assistants)
-- `.mcp.json` (MCP server config)
-- `opencode.json` (OpenCode AI config)
-- `.vscode/mcp.json` (VS Code MCP config)
+The current LoginDialog has accumulated fragile patterns:
+- `setTimeout` wrapping async calls (causes unhandled rejections)
+- Removed `finally` blocks (loading state never resets on success)
+- Single shared `isLoading` boolean (one stuck method freezes everything)
+- No timeouts (extension/bunker can hang forever)
+- Mixed error state management
 
-### CI/CD configs you don't use (Lovable handles deployment)
-- `.github/workflows/deploy.yml` (GitHub Pages deploy -- Lovable deploys for you)
-- `.github/workflows/test.yml` (GitHub Actions test runner)
-- `.gitlab-ci.yml` (GitLab CI pipeline)
+Adding more fixes on top will just create more spaghetti. A clean rewrite with correct patterns from the start is simpler and more reliable.
 
-### Unused UI components (never imported anywhere in the app)
-These shadcn/ui components are installed but never used by any page or feature:
-- `accordion`, `alert-dialog`, `aspect-ratio`, `breadcrumb`, `calendar`, `carousel`, `chart`, `checkbox`, `context-menu`, `hover-card`, `input-otp`, `menubar`, `navigation-menu`, `pagination`, `progress`, `radio-group`, `resizable`, `slider`, `table`
-- `sidebar.tsx` + `sidebar-utils.ts` (unused, and it's the only consumer of `sheet.tsx`)
-- `sheet.tsx` (only used by sidebar, which is itself unused)
-- `toggle-variants.ts`, `navigation-menu-variants.ts` (support files for unused components)
+## What the new LoginDialog will do
 
-### What stays
-- All actual app code (pages, components, hooks, contexts, lib)
-- UI components that ARE used: `alert`, `avatar`, `badge`, `button`, `card`, `collapsible`, `command`, `dialog`, `drawer`, `dropdown-menu`, `form`, `input`, `label`, `popover`, `scroll-area`, `select`, `separator`, `skeleton`, `switch`, `tabs`, `textarea`, `toast`, `toaster`, `toggle`, `toggle-group`, `tooltip`
-- `.vscode/settings.json` (editor settings -- harmless)
-- `eslint-rules/` and `eslint.config.js` (active linting)
+Same UI, same features, but with rock-solid internals:
+
+1. **Timeout protection** -- Extension login gets a 15s timeout, bunker gets 30s. If the user dismisses their extension popup or a bunker never responds, the UI recovers automatically.
+
+2. **Proper async/await everywhere** -- No more `setTimeout` hacks. Every login handler is a clean `async` function with `try/catch/finally`.
+
+3. **`finally` blocks guarantee reset** -- `isLoading` always resets to `false` no matter what happens (success, error, timeout).
+
+4. **Cancel button** -- When a login is in progress, users can cancel and try again instead of being stuck.
+
+5. **Clean state reset** -- All state resets when the dialog opens, including aborting any in-flight login.
+
+## What stays the same
+
+- The visual design and layout (extension button, QR section, collapsible advanced options with key/bunker tabs)
+- `useLoginActions` hook -- works fine, no changes
+- `NostrConnectLogin` component -- separate component, no changes
+- `LoginArea` -- no changes
+- The 300ms propagation delay before closing (this is genuinely needed)
 
 ## Technical details
 
-### Files to delete (30+ files)
-```text
-.claude/skills/ai-chat/SKILL.md
-.claude/skills/nostr-comments/SKILL.md
-.claude/skills/nostr-direct-messages/SKILL.md
-.claude/skills/nostr-infinite-scroll/SKILL.md
-AGENTS.md
-.mcp.json
-opencode.json
-.vscode/mcp.json
-.github/workflows/deploy.yml
-.github/workflows/test.yml
-.gitlab-ci.yml
-src/components/ui/accordion.tsx
-src/components/ui/alert-dialog.tsx
-src/components/ui/aspect-ratio.tsx
-src/components/ui/breadcrumb.tsx
-src/components/ui/calendar.tsx
-src/components/ui/carousel.tsx
-src/components/ui/chart.tsx
-src/components/ui/checkbox.tsx
-src/components/ui/context-menu.tsx
-src/components/ui/hover-card.tsx
-src/components/ui/input-otp.tsx
-src/components/ui/menubar.tsx
-src/components/ui/navigation-menu.tsx
-src/components/ui/navigation-menu-variants.ts
-src/components/ui/pagination.tsx
-src/components/ui/progress.tsx
-src/components/ui/radio-group.tsx
-src/components/ui/resizable.tsx
-src/components/ui/sheet.tsx
-src/components/ui/sidebar.tsx
-src/components/ui/sidebar-utils.ts
-src/components/ui/slider.tsx
-src/components/ui/table.tsx
+### File: `src/components/auth/LoginDialog.tsx` (full rewrite)
+
+The new file will have:
+
+```
+Helper: withTimeout(promise, ms) 
+  - Races the promise against a timer
+  - Rejects with a clear "timed out" message
+
+State:
+  - loadingMethod: null | 'extension' | 'nsec' | 'bunker' (replaces single isLoading boolean)
+  - nsec, bunkerUri, errors (same as before)
+
+Handlers (all async, all with try/catch/finally):
+  - handleExtensionLogin: withTimeout(login.extension(), 15000)
+  - handleKeyLogin: validates then calls login.nsec() 
+  - handleBunkerLogin: withTimeout(login.bunker(uri), 30000)
+  - handleFileUpload: reads file, validates, calls login.nsec()
+
+Every handler follows the same pattern:
+  try {
+    setLoadingMethod('extension')
+    await withTimeout(login.extension(), 15000)
+    await delay(300)
+    onLogin()
+    onClose()
+  } catch (e) {
+    setErrors(...)
+  } finally {
+    setLoadingMethod(null)
+  }
 ```
 
-### Unused dependencies to remove
-These npm packages are only used by the deleted UI components:
-- `@radix-ui/react-accordion`
-- `@radix-ui/react-alert-dialog`
-- `@radix-ui/react-aspect-ratio`
-- `@radix-ui/react-checkbox`
-- `@radix-ui/react-context-menu`
-- `@radix-ui/react-hover-card`
-- `@radix-ui/react-menubar`
-- `@radix-ui/react-navigation-menu`
-- `@radix-ui/react-progress`
-- `@radix-ui/react-radio-group`
-- `@radix-ui/react-slider`
-- `@radix-ui/react-scroll-area` -- wait, this IS used. Keep it.
-- `input-otp`
-- `embla-carousel-react` (only used by carousel)
-- `react-day-picker` (only used by calendar)
-- `react-resizable-panels` (only used by resizable)
-- `recharts` (only used by chart)
+### No other files change
 
-No functional changes -- the app works exactly the same, just leaner.
+The problem is entirely isolated to `LoginDialog.tsx`. The hooks, providers, and other auth components are fine.
 
