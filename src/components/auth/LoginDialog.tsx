@@ -101,13 +101,29 @@ export default function LoginDialog({ isOpen, onClose, onLogin }: LoginDialogPro
   /*  Handlers                                                         */
   /* ---------------------------------------------------------------- */
 
-  const doExtension = () =>
-    run(async () => {
-      if (!('nostr' in window)) throw new Error('No Nostr extension found. Install a NIP-07 extension first.');
-      console.info('[LoginDialog] Extension: requesting…');
-      await raceTimeout(actionsRef.current.extension(), 15_000, 'Extension');
-      console.info('[LoginDialog] Extension: done');
-    });
+  const doExtension = async () => {
+    if (busy) return;
+    setError('');
+
+    const w = window as unknown as { nostr?: { getPublicKey: () => Promise<string> } };
+    if (!w.nostr) {
+      setError('No Nostr extension found. Install a NIP-07 extension first.');
+      return;
+    }
+
+    try {
+      // Call extension directly — no busy state, no delays.
+      // The extension's own popup IS the UI feedback.
+      console.info('[LoginDialog] Extension: calling getPublicKey…');
+      await actionsRef.current.extension();
+      console.info('[LoginDialog] Extension: success, closing dialog');
+      onLoginRef.current();
+      onCloseRef.current();
+    } catch (e) {
+      console.error('[LoginDialog] Extension error:', e);
+      setError(e instanceof Error ? e.message : 'Extension login failed.');
+    }
+  };
 
   const doNsec = () => {
     const key = nsec.trim();
