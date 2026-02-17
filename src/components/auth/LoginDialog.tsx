@@ -84,9 +84,13 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
 
     setLoadingMethod('extension');
     try {
+      console.info('[LoginDialog] Extension login: calling login.extension()...');
       await withTimeout(login.extension(), 15_000, 'Extension login');
+      console.info('[LoginDialog] Extension login: success, completing...');
       await completeLogin();
+      console.info('[LoginDialog] Extension login: done.');
     } catch (e) {
+      console.error('[LoginDialog] Extension login failed:', e);
       setErrors({ extension: e instanceof Error ? e.message : 'Extension login failed.' });
     } finally {
       setLoadingMethod(null);
@@ -212,24 +216,13 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
                   <AlertDescription>{errors.extension}</AlertDescription>
                 </Alert>
               )}
-              {loadingMethod === 'extension' ? (
-                <div className="flex gap-2">
-                  <Button className="flex-1 h-12" disabled>
-                    Logging in...
-                  </Button>
-                  <Button variant="outline" className="h-12" onClick={cancelLogin}>
-                    Cancel
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  className="w-full h-12 px-9"
-                  onClick={handleExtensionLogin}
-                  disabled={isLoading}
-                >
-                  Log in with Extension
-                </Button>
-              )}
+              <Button
+                className="w-full h-12 px-9"
+                onClick={handleExtensionLogin}
+                disabled={isLoading}
+              >
+                {loadingMethod === 'extension' ? 'Logging in...' : 'Log in with Extension'}
+              </Button>
             </div>
           )}
 
