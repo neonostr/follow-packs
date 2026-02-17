@@ -1,29 +1,59 @@
-import { useState } from 'react';
-import { LogIn } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { useCurrentUser } from '@/hooks/useCurrentUser';
-import { AccountSwitcher } from '@/components/auth/AccountSwitcher';
-import { LoginDialog } from '@/components/auth/LoginDialog';
+// NOTE: This file is stable and usually should not be modified.
+// It is important that all functionality in this file is preserved, and should only be modified if explicitly requested.
 
-interface LoginAreaProps {
+import { useState } from 'react';
+import { Button } from '@/components/ui/button.tsx';
+import LoginDialog from './LoginDialog';
+import SignupDialog from './SignupDialog';
+import { useLoggedInAccounts } from '@/hooks/useLoggedInAccounts';
+import { AccountSwitcher } from './AccountSwitcher';
+import { cn } from '@/lib/utils';
+
+export interface LoginAreaProps {
   className?: string;
 }
 
 export function LoginArea({ className }: LoginAreaProps) {
-  const { user } = useCurrentUser();
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const { currentUser } = useLoggedInAccounts();
+  const [loginDialogOpen, setLoginDialogOpen] = useState(false);
+  const [signupDialogOpen, setSignupDialogOpen] = useState(false);
 
-  if (user) {
-    return <AccountSwitcher />;
-  }
+  const handleLogin = () => {
+    setLoginDialogOpen(false);
+    setSignupDialogOpen(false);
+  };
 
   return (
-    <div className={className}>
-      <Button onClick={() => setDialogOpen(true)} className="gap-2">
-        <LogIn className="size-4" />
-        Log in
-      </Button>
-      <LoginDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+    <div className={cn("inline-flex items-center justify-center", className)}>
+      {currentUser ? (
+        <AccountSwitcher onAddAccountClick={() => setLoginDialogOpen(true)} />
+      ) : (
+        <div className="flex gap-3 justify-center">
+          <Button
+            onClick={() => setLoginDialogOpen(true)}
+            className='flex items-center gap-2 px-4 py-2 rounded-full bg-primary text-primary-foreground w-full font-medium transition-all hover:bg-primary/90 animate-scale-in'
+          >
+            <span className='truncate'>Log in</span>
+          </Button><Button
+            onClick={() => setSignupDialogOpen(true)}
+            variant="outline"
+            className="flex items-center gap-2 px-4 py-2 rounded-full font-medium transition-all"
+          >
+            <span>Sign up</span>
+          </Button>
+        </div>
+      )}
+
+      <LoginDialog
+        isOpen={loginDialogOpen}
+        onClose={() => setLoginDialogOpen(false)}
+        onLogin={handleLogin}
+      />
+
+      <SignupDialog
+        isOpen={signupDialogOpen}
+        onClose={() => setSignupDialogOpen(false)}
+      />
     </div>
   );
 }
