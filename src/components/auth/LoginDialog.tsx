@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Upload, AlertTriangle, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,7 +13,10 @@ import { NostrConnectLogin } from './NostrConnectLogin';
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s. Please try again.`)), ms);
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms / 1000}s. Please try again.`)),
+      ms,
+    );
     promise.then(
       (val) => { clearTimeout(timer); resolve(val); },
       (err) => { clearTimeout(timer); reject(err); },
@@ -22,7 +25,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 const validateNsec = (nsec: string) => /^nsec1[a-zA-Z0-9]{58}$/.test(nsec);
 const validateBunkerUri = (uri: string) => uri.startsWith('bunker://');
 
@@ -47,6 +49,16 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
   const fileInputRef = useRef<HTMLInputElement>(null);
   const login = useLoginActions();
 
+  // Use refs for values accessed inside async handlers to avoid stale closures
+  const loginRef = useRef(login);
+  loginRef.current = login;
+  const onLoginRef = useRef(onLogin);
+  onLoginRef.current = onLogin;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const loadingRef = useRef(loadingMethod);
+  loadingRef.current = loadingMethod;
+
   const isLoading = loadingMethod !== null;
 
   // Reset all state when dialog opens
@@ -61,20 +73,15 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
     }
   }, [isOpen]);
 
-  const completeLogin = useCallback(async () => {
+  const completeLogin = async () => {
     await delay(300);
-    onLogin();
-    onClose();
-  }, [onLogin, onClose]);
-
-  const cancelLogin = useCallback(() => {
-    setLoadingMethod(null);
-    setErrors({});
-  }, []);
+    onLoginRef.current();
+    onCloseRef.current();
+  };
 
   // --- Extension ---
-  const handleExtensionLogin = useCallback(async () => {
-    if (isLoading) return;
+  const handleExtensionLogin = async () => {
+    if (loadingRef.current !== null) return;
     setErrors({});
 
     if (!('nostr' in window)) {
@@ -84,22 +91,21 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
 
     setLoadingMethod('extension');
     try {
-      console.info('[LoginDialog] Extension login: calling login.extension()...');
-      await withTimeout(login.extension(), 15_000, 'Extension login');
-      console.info('[LoginDialog] Extension login: success, completing...');
+      console.info('[LoginDialog] Extension: requesting permission...');
+      await withTimeout(loginRef.current.extension(), 15_000, 'Extension login');
+      console.info('[LoginDialog] Extension: success, closing...');
       await completeLogin();
-      console.info('[LoginDialog] Extension login: done.');
     } catch (e) {
-      console.error('[LoginDialog] Extension login failed:', e);
+      console.error('[LoginDialog] Extension failed:', e);
       setErrors({ extension: e instanceof Error ? e.message : 'Extension login failed.' });
     } finally {
       setLoadingMethod(null);
     }
-  }, [isLoading, login, completeLogin]);
+  };
 
   // --- Nsec ---
-  const handleKeyLogin = useCallback(async () => {
-    if (isLoading) return;
+  const handleKeyLogin = async () => {
+    if (loadingRef.current !== null) return;
 
     const trimmed = nsec.trim();
     if (!trimmed) {
@@ -114,19 +120,19 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
     setLoadingMethod('nsec');
     setErrors({});
     try {
-      login.nsec(trimmed);
+      loginRef.current.nsec(trimmed);
       await completeLogin();
     } catch {
       setErrors({ nsec: "Failed to login with this key. Please check that it's correct." });
     } finally {
       setLoadingMethod(null);
     }
-  }, [isLoading, nsec, login, completeLogin]);
+  };
 
   // --- File upload ---
-  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || isLoading) return;
+    if (!file || loadingRef.current !== null) return;
 
     setErrors({});
     const reader = new FileReader();
@@ -144,7 +150,7 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
 
       setLoadingMethod('nsec');
       try {
-        login.nsec(content);
+        loginRef.current.nsec(content);
         await completeLogin();
       } catch {
         setErrors({ file: "Failed to login with this key." });
@@ -158,11 +164,11 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
     };
 
     reader.readAsText(file);
-  }, [isLoading, login, completeLogin]);
+  };
 
   // --- Bunker ---
-  const handleBunkerLogin = useCallback(async () => {
-    if (isLoading) return;
+  const handleBunkerLogin = async () => {
+    if (loadingRef.current !== null) return;
 
     const trimmed = bunkerUri.trim();
     if (!trimmed) {
@@ -177,20 +183,23 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
     setLoadingMethod('bunker');
     setErrors({});
     try {
-      await withTimeout(login.bunker(trimmed), 30_000, 'Bunker connection');
+      console.info('[LoginDialog] Bunker: connecting...');
+      await withTimeout(loginRef.current.bunker(trimmed), 30_000, 'Bunker connection');
+      console.info('[LoginDialog] Bunker: success, closing...');
       await completeLogin();
     } catch (e) {
+      console.error('[LoginDialog] Bunker failed:', e);
       setErrors({ bunker: e instanceof Error ? e.message : 'Failed to connect to bunker.' });
     } finally {
       setLoadingMethod(null);
     }
-  }, [isLoading, bunkerUri, login, completeLogin]);
+  };
 
   // --- QR login callback ---
-  const handleQrLogin = useCallback(() => {
-    onLogin();
-    onClose();
-  }, [onLogin, onClose]);
+  const handleQrLogin = () => {
+    onLoginRef.current();
+    onCloseRef.current();
+  };
 
   const hasExtension = 'nostr' in window;
 
@@ -273,39 +282,26 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
                     </div>
 
                     <div className="flex space-x-2">
-                      {loadingMethod === 'nsec' ? (
-                        <>
-                          <Button type="button" size="lg" disabled className="flex-1">
-                            Verifying...
-                          </Button>
-                          <Button type="button" variant="outline" size="lg" onClick={cancelLogin} className="px-3">
-                            Cancel
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          <Button type="submit" size="lg" disabled={isLoading || !nsec.trim()} className="flex-1">
-                            Log in
-                          </Button>
-                          <input
-                            type="file"
-                            accept=".txt"
-                            className="hidden"
-                            ref={fileInputRef}
-                            onChange={handleFileUpload}
-                          />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="lg"
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={isLoading}
-                            className="px-3"
-                          >
-                            <Upload className="w-4 h-4" />
-                          </Button>
-                        </>
-                      )}
+                      <Button type="submit" size="lg" disabled={isLoading || !nsec.trim()} className="flex-1">
+                        {loadingMethod === 'nsec' ? 'Verifying...' : 'Log in'}
+                      </Button>
+                      <input
+                        type="file"
+                        accept=".txt"
+                        className="hidden"
+                        ref={fileInputRef}
+                        onChange={handleFileUpload}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="lg"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isLoading}
+                        className="px-3"
+                      >
+                        <Upload className="w-4 h-4" />
+                      </Button>
                     </div>
 
                     {errors.file && <p className="text-sm text-destructive text-center">{errors.file}</p>}
@@ -330,25 +326,14 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
                       {errors.bunker && <p className="text-sm text-destructive">{errors.bunker}</p>}
                     </div>
 
-                    {loadingMethod === 'bunker' ? (
-                      <div className="flex gap-2">
-                        <Button type="button" size="lg" disabled className="flex-1">
-                          Connecting...
-                        </Button>
-                        <Button type="button" variant="outline" size="lg" onClick={cancelLogin}>
-                          Cancel
-                        </Button>
-                      </div>
-                    ) : (
-                      <Button
-                        type="submit"
-                        size="lg"
-                        className="w-full"
-                        disabled={isLoading || !bunkerUri.trim()}
-                      >
-                        Log in
-                      </Button>
-                    )}
+                    <Button
+                      type="submit"
+                      size="lg"
+                      className="w-full"
+                      disabled={isLoading || !bunkerUri.trim()}
+                    >
+                      {loadingMethod === 'bunker' ? 'Connecting...' : 'Log in'}
+                    </Button>
                   </form>
                 </TabsContent>
               </Tabs>
