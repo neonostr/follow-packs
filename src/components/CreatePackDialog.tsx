@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { X, Search, Plus, Loader2, ImageIcon, Users, CheckCircle2 } from 'lucide-react';
 import { nip19 } from 'nostr-tools';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -52,8 +52,24 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
   const [selectedPubkeys, setSelectedPubkeys] = useState<string[]>(editPack?.pubkeys ?? []);
   const [searchQuery, setSearchQuery] = useState('');
 
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Debounce search query — only fire relay queries after 400ms of no typing
+  useEffect(() => {
+    // If it looks like an npub/hex, don't debounce (handled by tryAddDirect)
+    const trimmed = searchQuery.trim();
+    if (trimmed.startsWith('npub1') || /^[0-9a-f]{64}$/i.test(trimmed)) {
+      setDebouncedQuery('');
+      return;
+    }
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedQuery(searchQuery), 400);
+    return () => clearTimeout(debounceRef.current);
+  }, [searchQuery]);
+
   const { mutateAsync: createEvent, isPending: isPublishing } = useNostrPublish();
-  const { data: searchResults = [], isLoading: isSearching } = useSearchUsers(searchQuery);
+  const { data: searchResults = [], isLoading: isSearching } = useSearchUsers(debouncedQuery);
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [justAdded, setJustAdded] = useState(false);
