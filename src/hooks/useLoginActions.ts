@@ -8,6 +8,8 @@ export function useLoginActions() {
   const { addLogin, clearLogins } = useNostrLogin();
 
   return {
+    // Expose addLogin for manual login object creation (e.g. direct extension calls)
+    addLogin,
     // Login with a Nostr secret key
     nsec(nsec: string): void {
       const login = NLogin.fromNsec(nsec);
