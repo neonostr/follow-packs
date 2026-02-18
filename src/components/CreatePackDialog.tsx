@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { X, Search, Plus, Loader2, ImageIcon, Users } from 'lucide-react';
+import { useState, useCallback, useRef } from 'react';
+import { X, Search, Plus, Loader2, ImageIcon, Users, CheckCircle2 } from 'lucide-react';
 import { nip19 } from 'nostr-tools';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ import { useAuthor } from '@/hooks/useAuthor';
 import { genUserName } from '@/lib/genUserName';
 import { useQueryClient } from '@tanstack/react-query';
 import type { FollowPack } from '@/hooks/useFollowPacks';
+import { useToast } from '@/hooks/useToast';
 
 interface CreatePackDialogProps {
   open: boolean;
@@ -54,6 +55,9 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
   const { mutateAsync: createEvent, isPending: isPublishing } = useNostrPublish();
   const { data: searchResults = [], isLoading: isSearching } = useSearchUsers(searchQuery);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [justAdded, setJustAdded] = useState(false);
+  const justAddedTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const isEditing = !!editPack;
 
@@ -73,6 +77,12 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
 
   const removePubkey = useCallback((pubkey: string) => {
     setSelectedPubkeys((prev) => prev.filter((pk) => pk !== pubkey));
+  }, []);
+
+  const showAddedFeedback = useCallback(() => {
+    clearTimeout(justAddedTimer.current);
+    setJustAdded(true);
+    justAddedTimer.current = setTimeout(() => setJustAdded(false), 1500);
   }, []);
 
   const tryAddDirect = useCallback(async (input: string): Promise<boolean> => {
@@ -95,14 +105,27 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
     }
 
     if (pubkey) {
+      if (selectedPubkeys.includes(pubkey)) {
+        setSearchQuery('');
+        toast({
+          title: 'Already added',
+          description: 'This user is already in your pack.',
+        });
+        return true;
+      }
       // Await profile fetch so cache is seeded BEFORE SelectedMember renders
       await fetchAndCacheProfile(pubkey, queryClient);
       addPubkey(pubkey);
+      showAddedFeedback();
+      toast({
+        title: '✓ User added',
+        description: 'User has been added to your pack.',
+      });
       return true;
     }
 
     return false;
-  }, [addPubkey, queryClient]);
+  }, [addPubkey, queryClient, selectedPubkeys, toast, showAddedFeedback]);
 
   const handlePublish = async () => {
     if (!title.trim() || selectedPubkeys.length === 0) return;
@@ -234,9 +257,9 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
               </Label>
 
               <div className="relative h-10">
-                <Search className="absolute left-3 top-3 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <Search className={`absolute left-3 top-3 w-4 h-4 pointer-events-none transition-colors duration-200 ${justAdded ? 'text-green-500' : 'text-muted-foreground'}`} />
                 <Input
-                  placeholder="Search by name, NIP-05, or npub..."
+                  placeholder="Search by name, NIP-05, or paste npub..."
                   value={searchQuery}
                   onChange={(e) => {
                     const val = e.target.value;
@@ -261,11 +284,17 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
                       tryAddDirect(searchQuery);
                     }
                   }}
-                  className="pl-9 pr-9 rounded-lg h-10"
+                  className={`pl-9 pr-9 rounded-lg h-10 transition-all duration-200 ${justAdded ? 'border-green-500 ring-2 ring-green-500/20' : ''}`}
                 />
-                {/* Always-mounted spinner with opacity toggle to prevent layout shift */}
+                {/* Success checkmark */}
                 <div
-                  className={`absolute right-3 top-3 w-4 h-4 transition-opacity duration-150 ${isSearching ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                  className={`absolute right-3 top-3 w-4 h-4 transition-opacity duration-200 ${justAdded ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                >
+                  <CheckCircle2 className="w-4 h-4 text-green-500" />
+                </div>
+                {/* Spinner */}
+                <div
+                  className={`absolute right-3 top-3 w-4 h-4 transition-opacity duration-150 ${isSearching && !justAdded ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                 >
                   <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
                 </div>
