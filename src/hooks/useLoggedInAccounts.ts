@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useNostr } from '@nostrify/react';
 import { useNostrLogin } from '@nostrify/react/login';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -14,14 +15,15 @@ export interface Account {
 
 export function useLoggedInAccounts() {
   const { nostr } = useNostr();
-  const { logins, setLogin, removeLogin, clearLogins } = useNostrLogin();
+  const { logins, setLogin, removeLogin, clearLogins: rawClearLogins } = useNostrLogin();
   const queryClient = useQueryClient();
 
   const loginsKey = logins.map((l) => l.id).join(';');
+  const hasLogins = logins.length > 0;
 
   // Seed query cache from IndexedDB immediately on login change
   useEffect(() => {
-    if (logins.length === 0) return;
+    if (!hasLogins) return;
     const pubkeys = logins.map((l) => l.pubkey);
 
     getCachedAuthors(pubkeys).then((cached) => {
@@ -41,7 +43,7 @@ export function useLoggedInAccounts() {
         queryClient.setQueryData(['nostr', 'logins', loginsKey], accounts);
       }
     });
-  }, [logins, loginsKey, queryClient]);
+  }, [logins, loginsKey, queryClient, hasLogins]);
 
   const { data: authors = [] } = useQuery({
     queryKey: ['nostr', 'logins', loginsKey],
@@ -64,8 +66,18 @@ export function useLoggedInAccounts() {
         }
       });
     },
+    enabled: hasLogins,
     retry: 3,
   });
+
+  // Enhanced clearLogins that also wipes all nostr query caches
+  const clearLoginsClean = useCallback(() => {
+    rawClearLogins();
+    // Remove all login-related query caches so next login starts fresh
+    queryClient.removeQueries({ queryKey: ['nostr', 'logins'] });
+    // Invalidate all nostr queries to force refetch with new identity
+    queryClient.invalidateQueries({ queryKey: ['nostr'] });
+  }, [rawClearLogins, queryClient]);
 
   // Current user is the first login
   const currentUser: Account | undefined = (() => {
@@ -84,6 +96,6 @@ export function useLoggedInAccounts() {
     otherUsers,
     setLogin,
     removeLogin,
-    clearLogins,
+    clearLogins: clearLoginsClean,
   };
 }

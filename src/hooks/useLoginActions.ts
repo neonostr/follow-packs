@@ -1,11 +1,13 @@
 import { useNostr } from '@nostrify/react';
 import { NLogin, useNostrLogin } from '@nostrify/react/login';
+import { useQueryClient } from '@tanstack/react-query';
 
 // NOTE: This file should not be edited except for adding new login methods.
 
 export function useLoginActions() {
   const { nostr } = useNostr();
   const { addLogin, clearLogins } = useNostrLogin();
+  const queryClient = useQueryClient();
 
   return {
     // Expose addLogin for manual login object creation (e.g. direct extension calls)
@@ -26,7 +28,6 @@ export function useLoginActions() {
       addLogin(login);
     },
     // Login with a client-initiated nostrconnect flow (QR code scanning)
-    // Returns the generated NLogin after the remote signer connects
     async nostrconnect(opts: {
       bunkerPubkey: string;
       clientNsec: `nsec1${string}`;
@@ -40,9 +41,11 @@ export function useLoginActions() {
       });
       addLogin(login);
     },
-    // Log out completely - clears ALL stored sessions
+    // Log out completely - clears ALL stored sessions and query caches
     async logout(): Promise<void> {
       clearLogins();
+      queryClient.removeQueries({ queryKey: ['nostr', 'logins'] });
+      queryClient.invalidateQueries({ queryKey: ['nostr'] });
     }
   };
 }
