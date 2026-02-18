@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { Upload, AlertTriangle, ChevronDown } from 'lucide-react';
 import { NLogin } from '@nostrify/react/login';
+import { useQueryClient } from '@tanstack/react-query';
+import { fetchProfileFast } from '@/lib/fetchProfileFast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -44,6 +46,7 @@ export default function LoginDialog({ isOpen, onClose, onLogin }: LoginDialogPro
   const [bunkerUri, setBunkerUri] = useState('');
   const [moreOpen, setMoreOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
 
   // Stable refs for async callbacks (prevents stale closures)
   const actions = useLoginActions();
@@ -79,20 +82,29 @@ export default function LoginDialog({ isOpen, onClose, onLogin }: LoginDialogPro
     }
 
     try {
-      console.info('[LoginDialog] Extension: requesting pubkey from window.nostr…');
-
-      // Direct call — this triggers the extension popup immediately.
+      console.info('[LoginDialog] Extension: requesting pubkey…');
       const pubkey = await signer.getPublicKey();
       console.info('[LoginDialog] Extension: got pubkey', pubkey.slice(0, 8) + '…');
 
-      // Create login object manually and store it — no double popup
+      // Start fetching profile metadata from fast relays IMMEDIATELY
+      // This runs in parallel — we don't await it before closing
+      const metadataPromise = fetchProfileFast(pubkey).then((result) => {
+        if (result) {
+          queryClient.setQueryData(['author', pubkey], result);
+          // Also invalidate the logins query so AccountSwitcher picks up metadata
+          queryClient.invalidateQueries({ queryKey: ['nostr', 'logins'] });
+        }
+      }).catch(() => {}); // Silent fail — will retry via normal flow
+
+      // Store login and close dialog INSTANTLY
       const login = new NLogin('extension', pubkey, null);
       actionsRef.current.addLogin(login);
       console.info('[LoginDialog] Extension: login stored, closing dialog');
-
-      // Close immediately — no delays needed for extension login
       onLoginRef.current();
       onCloseRef.current();
+
+      // Wait for metadata in background (already running)
+      await metadataPromise;
     } catch (e) {
       console.error('[LoginDialog] Extension error:', e);
       setError(e instanceof Error ? e.message : 'Extension login failed.');
