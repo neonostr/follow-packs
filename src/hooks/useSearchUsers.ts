@@ -92,58 +92,7 @@ function isNip05Like(query: string): boolean {
   return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(query) || /^[^@\s]+\.[^@\s]+$/.test(query);
 }
 
-/** Resolve NIP-05 by querying search relays for kind 0 events and matching the nip05 field */
-async function resolveNip05ViaRelays(
-  nip05Input: string,
-  signal: AbortSignal,
-): Promise<SearchResult[]> {
-  const pool = getSearchPool();
-  const normalizedInput = nip05Input.toLowerCase().trim();
-
-  // Determine the name and domain
-  const [name, domain] = normalizedInput.includes('@')
-    ? normalizedInput.split('@')
-    : ['_', normalizedInput];
-
-  if (!domain) return [];
-
-  // Search by username (NIP-50 indexes names, not domains)
-  // Also search by domain as secondary, run both in parallel
-  const searchTerms = name !== '_' ? [name, `${name}@${domain}`] : [domain];
-
-  const allEvents: NostrEvent[] = [];
-  await Promise.all(
-    searchTerms.map(async (term) => {
-      try {
-        const events = await pool.query(
-          [{ kinds: [0], search: term, limit: 30 }],
-          { signal },
-        );
-        allEvents.push(...events);
-      } catch {
-        // ignore individual search failures
-      }
-    }),
-  );
-
-  // Filter results to match the exact NIP-05 identifier
-  return parseResults(allEvents).filter((r) => {
-    const userNip05 = r.metadata.nip05?.toLowerCase();
-    if (!userNip05) return false;
-
-    // Exact match
-    if (userNip05 === normalizedInput) return true;
-
-    // Handle _@domain matching domain-only input
-    if (name === '_') {
-      return userNip05 === `_@${domain}` || userNip05 === domain;
-    }
-
-    return false;
-  });
-}
-
-/** Try direct HTTP NIP-05 resolution as fallback (works when CORS allows it) */
+/** Try direct HTTP NIP-05 resolution — this is the canonical, most reliable method */
 async function resolveNip05Http(nip05: string, signal: AbortSignal): Promise<string | null> {
   try {
     const [name, domain] = nip05.includes('@') ? nip05.split('@') : ['_', nip05];
@@ -161,6 +110,43 @@ async function resolveNip05Http(nip05: string, signal: AbortSignal): Promise<str
   }
 }
 
+/** Search relays for profiles matching a NIP-05-like query (loose match, not exact) */
+async function searchRelaysForNip05(
+  nip05Input: string,
+  signal: AbortSignal,
+): Promise<SearchResult[]> {
+  const pool = getSearchPool();
+  const normalizedInput = nip05Input.toLowerCase().trim();
+
+  const [name, domain] = normalizedInput.includes('@')
+    ? normalizedInput.split('@')
+    : ['_', normalizedInput];
+
+  if (!domain) return [];
+
+  // Search by name and full handle in parallel
+  const searchTerms = name !== '_' ? [name, `${name}@${domain}`] : [domain];
+
+  const allEvents: NostrEvent[] = [];
+  await Promise.all(
+    searchTerms.map(async (term) => {
+      try {
+        const events = await pool.query(
+          [{ kinds: [0], search: term, limit: 30 }],
+          { signal },
+        );
+        allEvents.push(...events);
+      } catch {
+        // ignore individual search failures
+      }
+    }),
+  );
+
+  // Return ALL parsed results — don't filter to exact nip05 match
+  // since NIP-50 search is fuzzy and the user can pick from the list
+  return parseResults(allEvents);
+}
+
 export function useSearchUsers(query: string) {
   return useQuery<SearchResult[]>({
     queryKey: ['search-users', query],
@@ -171,22 +157,36 @@ export function useSearchUsers(query: string) {
 
       // NIP-05 resolution
       if (isNip05Like(query.trim())) {
-        // Try relay-based resolution first (no CORS issues)
-        const relayResults = await resolveNip05ViaRelays(query.trim(), timeout);
-        if (relayResults.length > 0) return relayResults;
+        // Run HTTP resolution and relay search in PARALLEL
+        const [httpPubkey, relayResults] = await Promise.all([
+          resolveNip05Http(query.trim(), timeout),
+          searchRelaysForNip05(query.trim(), timeout),
+        ]);
 
-        // Fallback: direct HTTP (works if CORS allows it)
-        const pubkey = await resolveNip05Http(query.trim(), timeout);
-        if (pubkey) {
-          const pool = getSearchPool();
-          const events = await pool.query(
-            [{ kinds: [0], authors: [pubkey], limit: 1 }],
-            { signal: timeout },
-          );
-          return parseResults(events);
+        // If HTTP resolved a pubkey, fetch their profile and put it first
+        if (httpPubkey) {
+          // Check if already in relay results
+          const alreadyFound = relayResults.find(r => r.pubkey === httpPubkey);
+          if (alreadyFound) {
+            // Move to front
+            return [alreadyFound, ...relayResults.filter(r => r.pubkey !== httpPubkey)];
+          }
+
+          // Fetch profile for the HTTP-resolved pubkey
+          try {
+            const pool = getSearchPool();
+            const events = await pool.query(
+              [{ kinds: [0], authors: [httpPubkey], limit: 1 }],
+              { signal: timeout },
+            );
+            const parsed = parseResults(events);
+            return [...parsed, ...relayResults.filter(r => r.pubkey !== httpPubkey)];
+          } catch {
+            // Fall through to relay results
+          }
         }
 
-        return [];
+        return relayResults;
       }
 
       // Name search via NIP-50
