@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { X, Search, Plus, Loader2, ImageIcon, Users, CheckCircle2 } from 'lucide-react';
+import { X, Search, Plus, Loader2, ImageIcon, Users } from 'lucide-react';
 import { nip19 } from 'nostr-tools';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,7 @@ import { useAuthor } from '@/hooks/useAuthor';
 import { genUserName } from '@/lib/genUserName';
 import { useQueryClient } from '@tanstack/react-query';
 import type { FollowPack } from '@/hooks/useFollowPacks';
-import { useToast } from '@/hooks/useToast';
+
 
 interface CreatePackDialogProps {
   open: boolean;
@@ -23,13 +23,13 @@ interface CreatePackDialogProps {
   editPack?: FollowPack | null;
 }
 
-function SelectedMember({ pubkey, onRemove }: { pubkey: string; onRemove: () => void }) {
+function SelectedMember({ pubkey, onRemove, isNew }: { pubkey: string; onRemove: () => void; isNew?: boolean }) {
   const author = useAuthor(pubkey);
   const metadata = author.data?.metadata;
   const displayName = metadata?.name ?? genUserName(pubkey);
 
   return (
-    <div className="flex items-center gap-2 bg-secondary/50 rounded-lg px-3 py-2 group animate-fade-in">
+    <div className={`flex items-center gap-2 rounded-lg px-3 py-2 group transition-colors duration-700 ${isNew ? 'bg-primary/15 animate-fade-in' : 'bg-secondary/50'}`}>
       <Avatar className="w-7 h-7">
         <AvatarImage src={metadata?.picture} alt={displayName} />
         <AvatarFallback className="text-[10px]">{displayName.charAt(0)}</AvatarFallback>
@@ -56,9 +56,9 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
   const { mutateAsync: createEvent, isPending: isPublishing } = useNostrPublish();
   const { data: searchResults = [], isLoading: isSearching } = useSearchUsers(committedQuery);
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-  const [justAdded, setJustAdded] = useState(false);
-  const justAddedTimer = useRef<ReturnType<typeof setTimeout>>();
+  const [lastAddedPubkey, setLastAddedPubkey] = useState<string | null>(null);
+  const lastAddedTimer = useRef<ReturnType<typeof setTimeout>>();
+  const membersEndRef = useRef<HTMLDivElement>(null);
 
   const isEditing = !!editPack;
 
@@ -68,6 +68,12 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
       return [...prev, pubkey];
     });
     setSearchQuery('');
+    // Highlight the newly added member
+    clearTimeout(lastAddedTimer.current);
+    setLastAddedPubkey(pubkey);
+    lastAddedTimer.current = setTimeout(() => setLastAddedPubkey(null), 2000);
+    // Scroll to bottom of members list after render
+    setTimeout(() => membersEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
   }, []);
 
   /** Add a search result and seed the author cache so SelectedMember shows correct data */
@@ -78,12 +84,6 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
 
   const removePubkey = useCallback((pubkey: string) => {
     setSelectedPubkeys((prev) => prev.filter((pk) => pk !== pubkey));
-  }, []);
-
-  const showAddedFeedback = useCallback(() => {
-    clearTimeout(justAddedTimer.current);
-    setJustAdded(true);
-    justAddedTimer.current = setTimeout(() => setJustAdded(false), 1500);
   }, []);
 
   const tryAddDirect = useCallback(async (input: string): Promise<boolean> => {
@@ -108,25 +108,15 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
     if (pubkey) {
       if (selectedPubkeys.includes(pubkey)) {
         setSearchQuery('');
-        toast({
-          title: 'Already added',
-          description: 'This user is already in your pack.',
-        });
         return true;
       }
-      // Await profile fetch so cache is seeded BEFORE SelectedMember renders
       await fetchAndCacheProfile(pubkey, queryClient);
       addPubkey(pubkey);
-      showAddedFeedback();
-      toast({
-        title: '✓ User added',
-        description: 'User has been added to your pack.',
-      });
       return true;
     }
 
     return false;
-  }, [addPubkey, queryClient, selectedPubkeys, toast, showAddedFeedback]);
+  }, [addPubkey, queryClient, selectedPubkeys]);
 
   const handlePublish = async () => {
     if (!title.trim() || selectedPubkeys.length === 0) return;
@@ -259,7 +249,7 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
 
               <div className="flex gap-2">
                 <div className="relative flex-1">
-                  <Search className={`absolute left-3 top-3 w-4 h-4 pointer-events-none transition-colors duration-200 ${justAdded ? 'text-green-500' : 'text-muted-foreground'}`} />
+                  <Search className="absolute left-3 top-3 w-4 h-4 pointer-events-none text-muted-foreground" />
                   <Input
                     placeholder="Name, NIP-05, or npub..."
                     value={searchQuery}
@@ -284,7 +274,6 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
-                        // Try direct add first, if not npub/hex then trigger search
                         tryAddDirect(searchQuery).then((added) => {
                           if (!added && searchQuery.trim().length >= 2) {
                             setCommittedQuery(searchQuery.trim());
@@ -292,14 +281,8 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
                         });
                       }
                     }}
-                    className={`pl-9 pr-9 rounded-lg h-10 transition-all duration-200 ${justAdded ? 'border-green-500 ring-2 ring-green-500/20' : ''}`}
+                    className="pl-9 rounded-lg h-10"
                   />
-                  {/* Success checkmark */}
-                  <div
-                    className={`absolute right-3 top-3 w-4 h-4 transition-opacity duration-200 ${justAdded ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                  >
-                    <CheckCircle2 className="w-4 h-4 text-green-500" />
-                  </div>
                 </div>
                 <Button
                   type="button"
@@ -362,8 +345,9 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
                 </Label>
                 <div className="space-y-1.5 max-h-40 overflow-y-auto">
                   {selectedPubkeys.map((pk) => (
-                    <SelectedMember key={pk} pubkey={pk} onRemove={() => removePubkey(pk)} />
+                    <SelectedMember key={pk} pubkey={pk} onRemove={() => removePubkey(pk)} isNew={pk === lastAddedPubkey} />
                   ))}
+                  <div ref={membersEndRef} />
                 </div>
               </div>
             )}
