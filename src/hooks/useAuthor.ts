@@ -1,11 +1,38 @@
-import { type NostrEvent, type NostrMetadata, NSchema as n } from '@nostrify/nostrify';
-import { useNostr } from '@nostrify/react';
+import { type NostrEvent, type NostrMetadata, NSchema as n, NPool, NRelay1 } from '@nostrify/nostrify';
 import { useQuery } from '@tanstack/react-query';
 import { setCachedAuthor } from '@/lib/authorCache';
 import { prefetchingPubkeys } from '@/hooks/usePrefetchAuthors';
 
+/**
+ * Dedicated fast relay pool for individual author metadata fetches.
+ * Uses directory relays instead of the user's relay list.
+ */
+const PROFILE_RELAYS = [
+  'wss://purplepag.es',
+  'wss://relay.damus.io',
+  'wss://relay.primal.net',
+];
+
+let authorPool: NPool | null = null;
+function getAuthorPool(): NPool {
+  if (!authorPool) {
+    authorPool = new NPool({
+      open: (url: string) => new NRelay1(url),
+      reqRouter: (filters) => {
+        const routes = new Map<string, typeof filters>();
+        for (const url of PROFILE_RELAYS) {
+          routes.set(url, filters);
+        }
+        return routes;
+      },
+      eventRouter: () => PROFILE_RELAYS,
+    });
+  }
+  return authorPool;
+}
+
 export function useAuthor(pubkey: string | undefined) {
-  const { nostr } = useNostr();
+  const pool = getAuthorPool();
 
   return useQuery<{ event?: NostrEvent; metadata?: NostrMetadata }>({
     queryKey: ['author', pubkey ?? ''],
@@ -25,15 +52,13 @@ export function useAuthor(pubkey: string | undefined) {
               setTimeout(check, 200);
             }
           };
-          // Also resolve if signal aborts
           signal.addEventListener('abort', () => resolve());
           check();
         });
-        // After waiting, check if batch resolved it
         if (signal.aborted) return {};
       }
 
-      const [event] = await nostr.query(
+      const [event] = await pool.query(
         [{ kinds: [0], authors: [pubkey!], limit: 1 }],
         { signal: AbortSignal.any([signal, AbortSignal.timeout(3000)]) },
       );

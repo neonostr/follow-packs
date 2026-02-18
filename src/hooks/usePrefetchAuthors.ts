@@ -1,19 +1,46 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { NSchema as n } from '@nostrify/nostrify';
-import { useNostr } from '@nostrify/react';
+import { NSchema as n, NPool, NRelay1 } from '@nostrify/nostrify';
 import { useQueryClient } from '@tanstack/react-query';
 import { setCachedAuthor } from '@/lib/authorCache';
 
 const BATCH_SIZE = 15;
-const QUERY_TIMEOUT = 6000;
+const QUERY_TIMEOUT = 4000;
 const MAX_RETRIES = 5;
 const BASE_DELAY = 2000;
+
+/**
+ * Fast, dedicated relay pool for bulk author metadata fetching.
+ * Uses reliable directory relays instead of the user's relay list.
+ */
+const PROFILE_RELAYS = [
+  'wss://purplepag.es',
+  'wss://relay.damus.io',
+  'wss://relay.primal.net',
+];
+
+let profilePool: NPool | null = null;
+function getProfilePool(): NPool {
+  if (!profilePool) {
+    profilePool = new NPool({
+      open: (url: string) => new NRelay1(url),
+      reqRouter: (filters) => {
+        const routes = new Map<string, typeof filters>();
+        for (const url of PROFILE_RELAYS) {
+          routes.set(url, filters);
+        }
+        return routes;
+      },
+      eventRouter: () => PROFILE_RELAYS,
+    });
+  }
+  return profilePool;
+}
 
 /** Set of pubkeys currently being batch-fetched. Individual useAuthor hooks check this to avoid competing queries. */
 export const prefetchingPubkeys = new Set<string>();
 
 export function usePrefetchAuthors(pubkeys: string[]) {
-  const { nostr } = useNostr();
+  const pool = getProfilePool();
   const queryClient = useQueryClient();
   const abortRef = useRef<AbortController | null>(null);
 
@@ -28,7 +55,7 @@ export function usePrefetchAuthors(pubkeys: string[]) {
       const results = await Promise.all(
         chunks.map(async (chunk) => {
           try {
-            return await nostr.query(
+            return await pool.query(
               [{ kinds: [0], authors: chunk, limit: chunk.length }],
               { signal: AbortSignal.any([signal, AbortSignal.timeout(QUERY_TIMEOUT)]) },
             );
@@ -62,7 +89,7 @@ export function usePrefetchAuthors(pubkeys: string[]) {
       // Batch failed entirely
     }
     return resolved;
-  }, [nostr, queryClient]);
+  }, [pool, queryClient]);
 
   useEffect(() => {
     if (!pubkeys.length) return;
