@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { useNostrLogin } from '@nostrify/react/login';
 import { useCurrentUser } from './useCurrentUser';
+import { useLoggedInAccounts } from './useLoggedInAccounts';
 import { useToast } from './useToast';
 
 const PING_INTERVAL = 60_000; // Check every 60 seconds
@@ -14,13 +14,12 @@ const MAX_FAILURES = 3; // Log out after 3 consecutive failures
  */
 export function useBunkerHealth() {
   const { user } = useCurrentUser();
-  const { logins, clearLogins } = useNostrLogin();
+  const { clearLogins, currentUser } = useLoggedInAccounts();
   const { toast } = useToast();
   const failureCount = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const currentLogin = logins[0];
-  const isBunker = currentLogin?.type === 'bunker';
+  const isBunker = currentUser?.id?.startsWith('bunker:') ?? false;
 
   useEffect(() => {
     if (!isBunker || !user) {
