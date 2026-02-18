@@ -8,55 +8,33 @@ export interface SearchResult {
   metadata: NostrMetadata;
 }
 
-// NIP-50 search relays (support the `search` filter)
-const SEARCH_RELAYS = [
+// Reliable relays for profile search and fetching
+// purplepag.es is a directory relay that indexes ALL kind 0 profiles
+// relay.nostr.band supports NIP-50 full-text search
+// relay.primal.net and relay.damus.io are high-availability relays
+const ALL_RELAYS = [
+  'wss://purplepag.es',
   'wss://relay.nostr.band',
   'wss://relay.primal.net',
-];
-
-// Directory relays for fetching profiles by pubkey
-const DIRECTORY_RELAYS = [
-  'wss://purplepag.es',
   'wss://relay.damus.io',
-  'wss://relay.primal.net',
 ];
 
-/** Pool for NIP-50 text search queries */
-function createSearchPool(): NPool {
+function createPool(relays: string[]): NPool {
   return new NPool({
     open: (url: string) => new NRelay1(url),
     reqRouter: (filters) => {
       const routes = new Map<string, typeof filters>();
-      for (const url of SEARCH_RELAYS) routes.set(url, filters);
+      for (const url of relays) routes.set(url, filters);
       return routes;
     },
-    eventRouter: () => SEARCH_RELAYS,
+    eventRouter: () => relays,
   });
 }
 
-/** Pool for fetching profiles by pubkey from directory relays */
-function createDirectoryPool(): NPool {
-  return new NPool({
-    open: (url: string) => new NRelay1(url),
-    reqRouter: (filters) => {
-      const routes = new Map<string, typeof filters>();
-      for (const url of DIRECTORY_RELAYS) routes.set(url, filters);
-      return routes;
-    },
-    eventRouter: () => DIRECTORY_RELAYS,
-  });
-}
-
-let _searchPool: NPool | undefined;
-function getSearchPool(): NPool {
-  if (!_searchPool) _searchPool = createSearchPool();
-  return _searchPool;
-}
-
-let _directoryPool: NPool | undefined;
-function getDirectoryPool(): NPool {
-  if (!_directoryPool) _directoryPool = createDirectoryPool();
-  return _directoryPool;
+let _pool: NPool | undefined;
+function getPool(): NPool {
+  if (!_pool) _pool = createPool(ALL_RELAYS);
+  return _pool;
 }
 
 /**
@@ -73,7 +51,7 @@ export async function fetchAndCacheProfile(
   if (existing) return;
 
   try {
-    const pool = getDirectoryPool();
+    const pool = getPool();
     const events = await pool.query(
       [{ kinds: [0], authors: [pubkey], limit: 1 }],
       { signal: signal ?? AbortSignal.timeout(5000) },
@@ -133,7 +111,7 @@ async function searchRelaysForNip05(
   nip05Input: string,
   signal: AbortSignal,
 ): Promise<SearchResult[]> {
-  const pool = getSearchPool();
+  const pool = getPool();
   const normalizedInput = nip05Input.toLowerCase().trim();
 
   const [name, domain] = normalizedInput.includes('@')
@@ -192,7 +170,7 @@ export function useSearchUsers(query: string) {
 
           // Fetch profile for the HTTP-resolved pubkey
           try {
-            const pool = getDirectoryPool();
+            const pool = getPool();
             const events = await pool.query(
               [{ kinds: [0], authors: [httpPubkey], limit: 1 }],
               { signal: timeout },
@@ -208,7 +186,7 @@ export function useSearchUsers(query: string) {
       }
 
       // Name search via NIP-50
-      const pool = getSearchPool();
+      const pool = getPool();
       try {
         const events = await pool.query(
           [{ kinds: [0], search: query, limit: 20 }],
