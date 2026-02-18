@@ -8,37 +8,55 @@ export interface SearchResult {
   metadata: NostrMetadata;
 }
 
+// NIP-50 search relays (support the `search` filter)
 const SEARCH_RELAYS = [
-  'wss://purplepag.es',
+  'wss://relay.nostr.band',
   'wss://relay.primal.net',
-  'wss://relay.damus.io',
 ];
 
-/** Create a one-off relay group for search queries */
+// Directory relays for fetching profiles by pubkey
+const DIRECTORY_RELAYS = [
+  'wss://purplepag.es',
+  'wss://relay.damus.io',
+  'wss://relay.primal.net',
+];
+
+/** Pool for NIP-50 text search queries */
 function createSearchPool(): NPool {
   return new NPool({
-    open(url: string) {
-      return new NRelay1(url);
-    },
-    reqRouter(filters) {
+    open: (url: string) => new NRelay1(url),
+    reqRouter: (filters) => {
       const routes = new Map<string, typeof filters>();
-      for (const url of SEARCH_RELAYS) {
-        routes.set(url, filters);
-      }
+      for (const url of SEARCH_RELAYS) routes.set(url, filters);
       return routes;
     },
-    eventRouter() {
-      return SEARCH_RELAYS;
+    eventRouter: () => SEARCH_RELAYS,
+  });
+}
+
+/** Pool for fetching profiles by pubkey from directory relays */
+function createDirectoryPool(): NPool {
+  return new NPool({
+    open: (url: string) => new NRelay1(url),
+    reqRouter: (filters) => {
+      const routes = new Map<string, typeof filters>();
+      for (const url of DIRECTORY_RELAYS) routes.set(url, filters);
+      return routes;
     },
+    eventRouter: () => DIRECTORY_RELAYS,
   });
 }
 
 let _searchPool: NPool | undefined;
 function getSearchPool(): NPool {
-  if (!_searchPool) {
-    _searchPool = createSearchPool();
-  }
+  if (!_searchPool) _searchPool = createSearchPool();
   return _searchPool;
+}
+
+let _directoryPool: NPool | undefined;
+function getDirectoryPool(): NPool {
+  if (!_directoryPool) _directoryPool = createDirectoryPool();
+  return _directoryPool;
 }
 
 /**
@@ -55,7 +73,7 @@ export async function fetchAndCacheProfile(
   if (existing) return;
 
   try {
-    const pool = getSearchPool();
+    const pool = getDirectoryPool();
     const events = await pool.query(
       [{ kinds: [0], authors: [pubkey], limit: 1 }],
       { signal: signal ?? AbortSignal.timeout(5000) },
@@ -174,7 +192,7 @@ export function useSearchUsers(query: string) {
 
           // Fetch profile for the HTTP-resolved pubkey
           try {
-            const pool = getSearchPool();
+            const pool = getDirectoryPool();
             const events = await pool.query(
               [{ kinds: [0], authors: [httpPubkey], limit: 1 }],
               { signal: timeout },
