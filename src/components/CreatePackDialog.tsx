@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { X, Search, Plus, Loader2, ImageIcon, Users, CheckCircle2 } from 'lucide-react';
 import { nip19 } from 'nostr-tools';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -51,25 +51,10 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
   const [image, setImage] = useState(editPack?.image ?? '');
   const [selectedPubkeys, setSelectedPubkeys] = useState<string[]>(editPack?.pubkeys ?? []);
   const [searchQuery, setSearchQuery] = useState('');
-
-  const [debouncedQuery, setDebouncedQuery] = useState('');
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
-
-  // Debounce search query — only fire relay queries after 400ms of no typing
-  useEffect(() => {
-    // If it looks like an npub/hex, don't debounce (handled by tryAddDirect)
-    const trimmed = searchQuery.trim();
-    if (trimmed.startsWith('npub1') || /^[0-9a-f]{64}$/i.test(trimmed)) {
-      setDebouncedQuery('');
-      return;
-    }
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setDebouncedQuery(searchQuery), 400);
-    return () => clearTimeout(debounceRef.current);
-  }, [searchQuery]);
+  const [committedQuery, setCommittedQuery] = useState('');
 
   const { mutateAsync: createEvent, isPending: isPublishing } = useNostrPublish();
-  const { data: searchResults = [], isLoading: isSearching } = useSearchUsers(debouncedQuery);
+  const { data: searchResults = [], isLoading: isSearching } = useSearchUsers(committedQuery);
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [justAdded, setJustAdded] = useState(false);
@@ -272,52 +257,77 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
                 </div>
               </Label>
 
-              <div className="relative h-10">
-                <Search className={`absolute left-3 top-3 w-4 h-4 pointer-events-none transition-colors duration-200 ${justAdded ? 'text-green-500' : 'text-muted-foreground'}`} />
-                <Input
-                  placeholder="Search by name, NIP-05, or paste npub..."
-                  value={searchQuery}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setSearchQuery(val);
-                    if (val.startsWith('npub1') && val.length >= 63) {
-                      tryAddDirect(val);
-                    } else if (/^[0-9a-f]{64}$/i.test(val.trim())) {
-                      tryAddDirect(val);
-                    }
-                  }}
-                  onPaste={(e) => {
-                    const pasted = e.clipboardData.getData('text');
-                    if (pasted) {
-                      e.preventDefault();
-                      setSearchQuery(pasted);
-                      tryAddDirect(pasted);
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      tryAddDirect(searchQuery);
-                    }
-                  }}
-                  className={`pl-9 pr-9 rounded-lg h-10 transition-all duration-200 ${justAdded ? 'border-green-500 ring-2 ring-green-500/20' : ''}`}
-                />
-                {/* Success checkmark */}
-                <div
-                  className={`absolute right-3 top-3 w-4 h-4 transition-opacity duration-200 ${justAdded ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                >
-                  <CheckCircle2 className="w-4 h-4 text-green-500" />
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className={`absolute left-3 top-3 w-4 h-4 pointer-events-none transition-colors duration-200 ${justAdded ? 'text-green-500' : 'text-muted-foreground'}`} />
+                  <Input
+                    placeholder="Name, NIP-05, or npub..."
+                    value={searchQuery}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSearchQuery(val);
+                      // Auto-add npub/hex on type (instant, no search needed)
+                      if (val.startsWith('npub1') && val.length >= 63) {
+                        tryAddDirect(val);
+                      } else if (/^[0-9a-f]{64}$/i.test(val.trim())) {
+                        tryAddDirect(val);
+                      }
+                    }}
+                    onPaste={(e) => {
+                      const pasted = e.clipboardData.getData('text');
+                      if (pasted) {
+                        e.preventDefault();
+                        setSearchQuery(pasted);
+                        tryAddDirect(pasted);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        // Try direct add first, if not npub/hex then trigger search
+                        tryAddDirect(searchQuery).then((added) => {
+                          if (!added && searchQuery.trim().length >= 2) {
+                            setCommittedQuery(searchQuery.trim());
+                          }
+                        });
+                      }
+                    }}
+                    className={`pl-9 pr-9 rounded-lg h-10 transition-all duration-200 ${justAdded ? 'border-green-500 ring-2 ring-green-500/20' : ''}`}
+                  />
+                  {/* Success checkmark */}
+                  <div
+                    className={`absolute right-3 top-3 w-4 h-4 transition-opacity duration-200 ${justAdded ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-green-500" />
+                  </div>
                 </div>
-                {/* Spinner */}
-                <div
-                  className={`absolute right-3 top-3 w-4 h-4 transition-opacity duration-150 ${isSearching && !justAdded ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-10 shrink-0 rounded-lg px-4"
+                  disabled={searchQuery.trim().length < 2 || isSearching}
+                  onClick={() => {
+                    tryAddDirect(searchQuery).then((added) => {
+                      if (!added && searchQuery.trim().length >= 2) {
+                        setCommittedQuery(searchQuery.trim());
+                      }
+                    });
+                  }}
                 >
-                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                </div>
+                  {isSearching ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Search className="w-4 h-4 mr-1.5" />
+                      Search
+                    </>
+                  )}
+                </Button>
               </div>
 
               {/* Search results */}
-              {searchQuery.length >= 2 && filteredResults.length > 0 && (
+              {committedQuery.length >= 2 && filteredResults.length > 0 && (
                 <div className="border rounded-lg max-h-40 overflow-y-auto">
                   {filteredResults.map((result) => (
                     <button
