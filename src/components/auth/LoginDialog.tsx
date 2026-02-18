@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Upload, AlertTriangle, ChevronDown } from 'lucide-react';
+import { NLogin } from '@nostrify/react/login';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -19,22 +20,24 @@ import {
 import { useLoginActions } from '@/hooks/useLoginActions';
 import { NostrConnectLogin } from './NostrConnectLogin';
 
-/* ------------------------------------------------------------------ */
-/*  Props                                                              */
-/* ------------------------------------------------------------------ */
-
 interface LoginDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onLogin: () => void;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Component                                                          */
-/* ------------------------------------------------------------------ */
-
+/**
+ * LoginDialog — rebuilt following NostrPad's architecture:
+ *
+ * Extension (NIP-07): Direct window.nostr.getPublicKey() call.
+ *   - INSTANT — no busy state, no delays, no wrappers.
+ *   - The extension's own popup IS the UI feedback.
+ *
+ * QR/NIP-46: Handled by <NostrConnectLogin /> (ephemeral keypair, nostrconnect URI).
+ *
+ * nsec/bunker: Advanced options behind a collapsible.
+ */
 export default function LoginDialog({ isOpen, onClose, onLogin }: LoginDialogProps) {
-  /* — state — */
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [nsec, setNsec] = useState('');
@@ -42,7 +45,7 @@ export default function LoginDialog({ isOpen, onClose, onLogin }: LoginDialogPro
   const [moreOpen, setMoreOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  /* — stable refs so async code always sees latest values — */
+  // Stable refs for async callbacks (prevents stale closures)
   const actions = useLoginActions();
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
@@ -51,7 +54,7 @@ export default function LoginDialog({ isOpen, onClose, onLogin }: LoginDialogPro
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
-  /* — reset everything when dialog opens — */
+  // Reset state when dialog opens
   useEffect(() => {
     if (isOpen) {
       setBusy(false);
@@ -63,22 +66,56 @@ export default function LoginDialog({ isOpen, onClose, onLogin }: LoginDialogPro
     }
   }, [isOpen]);
 
-  /* — shared finish helper — */
-  const finish = async () => {
-    // Give login state 300ms to propagate through NostrLoginProvider
-    await new Promise((r) => setTimeout(r, 300));
+  // ─── Extension Login (NIP-07) ───────────────────────────────────
+  // Following NostrPad: direct window.nostr call, no busy state,
+  // no delays, no abstractions. The extension popup IS the feedback.
+  const doExtension = async () => {
+    setError('');
+
+    const signer = (window as unknown as { nostr?: { getPublicKey: () => Promise<string> } }).nostr;
+    if (!signer) {
+      setError('No Nostr extension found. Install a NIP-07 extension (Alby, nos2x, etc.) first.');
+      return;
+    }
+
+    try {
+      console.info('[LoginDialog] Extension: requesting pubkey from window.nostr…');
+
+      // Direct call — this triggers the extension popup immediately.
+      const pubkey = await signer.getPublicKey();
+      console.info('[LoginDialog] Extension: got pubkey', pubkey.slice(0, 8) + '…');
+
+      // Create login object manually and store it — no double popup
+      const login = new NLogin('extension', pubkey, null);
+      actionsRef.current.addLogin(login);
+      console.info('[LoginDialog] Extension: login stored, closing dialog');
+
+      // Close immediately — no delays needed for extension login
+      onLoginRef.current();
+      onCloseRef.current();
+    } catch (e) {
+      console.error('[LoginDialog] Extension error:', e);
+      setError(e instanceof Error ? e.message : 'Extension login failed.');
+    }
+  };
+
+  // ─── QR / NIP-46 callback ──────────────────────────────────────
+  const doQr = () => {
     onLoginRef.current();
     onCloseRef.current();
   };
 
-  /* — shared run helper: wraps any login attempt — */
+  // ─── Shared run helper for nsec/bunker (async methods) ─────────
   const run = async (fn: () => Promise<void> | void) => {
     if (busy) return;
     setBusy(true);
     setError('');
     try {
       await fn();
-      await finish();
+      // 300ms delay for nsec/bunker to let state propagate
+      await new Promise((r) => setTimeout(r, 300));
+      onLoginRef.current();
+      onCloseRef.current();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Login failed. Please try again.';
       console.error('[LoginDialog]', msg);
@@ -88,43 +125,7 @@ export default function LoginDialog({ isOpen, onClose, onLogin }: LoginDialogPro
     }
   };
 
-  /* — timeout race helper — */
-  const raceTimeout = <T,>(p: Promise<T>, ms: number, label: string): Promise<T> =>
-    Promise.race([
-      p,
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`${label} timed out. Please try again.`)), ms),
-      ),
-    ]);
-
-  /* ---------------------------------------------------------------- */
-  /*  Handlers                                                         */
-  /* ---------------------------------------------------------------- */
-
-  const doExtension = async () => {
-    if (busy) return;
-    setError('');
-
-    const w = window as unknown as { nostr?: { getPublicKey: () => Promise<string> } };
-    if (!w.nostr) {
-      setError('No Nostr extension found. Install a NIP-07 extension first.');
-      return;
-    }
-
-    try {
-      // Call extension directly — no busy state, no delays.
-      // The extension's own popup IS the UI feedback.
-      console.info('[LoginDialog] Extension: calling getPublicKey…');
-      await actionsRef.current.extension();
-      console.info('[LoginDialog] Extension: success, closing dialog');
-      onLoginRef.current();
-      onCloseRef.current();
-    } catch (e) {
-      console.error('[LoginDialog] Extension error:', e);
-      setError(e instanceof Error ? e.message : 'Extension login failed.');
-    }
-  };
-
+  // ─── nsec Login ────────────────────────────────────────────────
   const doNsec = () => {
     const key = nsec.trim();
     if (!key) { setError('Enter your secret key.'); return; }
@@ -132,13 +133,22 @@ export default function LoginDialog({ isOpen, onClose, onLogin }: LoginDialogPro
     run(() => { actionsRef.current.nsec(key); });
   };
 
+  // ─── Bunker Login ──────────────────────────────────────────────
   const doBunker = () => {
     const uri = bunkerUri.trim();
     if (!uri) { setError('Enter a bunker URI.'); return; }
     if (!uri.startsWith('bunker://')) { setError('URI must start with bunker://'); return; }
-    run(() => raceTimeout(actionsRef.current.bunker(uri), 30_000, 'Bunker'));
+    run(() =>
+      Promise.race([
+        actionsRef.current.bunker(uri),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Bunker timed out (30s). Please try again.')), 30_000),
+        ),
+      ]),
+    );
   };
 
+  // ─── File Import ───────────────────────────────────────────────
   const doFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -155,15 +165,7 @@ export default function LoginDialog({ isOpen, onClose, onLogin }: LoginDialogPro
     reader.readAsText(file);
   };
 
-  const doQr = () => {
-    onLoginRef.current();
-    onCloseRef.current();
-  };
-
-  /* ---------------------------------------------------------------- */
-  /*  Render                                                           */
-  /* ---------------------------------------------------------------- */
-
+  // ─── Render ────────────────────────────────────────────────────
   const hasExt = typeof window !== 'undefined' && 'nostr' in window;
 
   return (
@@ -187,14 +189,14 @@ export default function LoginDialog({ isOpen, onClose, onLogin }: LoginDialogPro
             </Alert>
           )}
 
-          {/* Extension */}
+          {/* Extension — shown only when NIP-07 extension is available */}
           {hasExt && (
-            <Button className="w-full h-12" onClick={doExtension} disabled={busy}>
-              {busy ? 'Logging in…' : 'Log in with Extension'}
+            <Button className="w-full h-12" onClick={doExtension}>
+              Log in with Extension
             </Button>
           )}
 
-          {/* QR / NIP-46 scanner */}
+          {/* QR / NIP-46 */}
           {isOpen && (
             <div className="border rounded-xl p-4 bg-muted/20">
               <NostrConnectLogin onLogin={doQr} />
@@ -217,12 +219,8 @@ export default function LoginDialog({ isOpen, onClose, onLogin }: LoginDialogPro
                   <TabsTrigger value="bunker">Bunker URI</TabsTrigger>
                 </TabsList>
 
-                {/* nsec tab */}
                 <TabsContent value="key" className="space-y-4">
-                  <form
-                    onSubmit={(e) => { e.preventDefault(); doNsec(); }}
-                    className="space-y-4"
-                  >
+                  <form onSubmit={(e) => { e.preventDefault(); doNsec(); }} className="space-y-4">
                     <Input
                       type="password"
                       value={nsec}
@@ -231,7 +229,6 @@ export default function LoginDialog({ isOpen, onClose, onLogin }: LoginDialogPro
                       autoComplete="off"
                       className="rounded-lg"
                     />
-
                     <div className="flex space-x-2">
                       <Button type="submit" size="lg" disabled={busy || !nsec.trim()} className="flex-1">
                         {busy ? 'Verifying…' : 'Log in'}
@@ -251,12 +248,8 @@ export default function LoginDialog({ isOpen, onClose, onLogin }: LoginDialogPro
                   </form>
                 </TabsContent>
 
-                {/* bunker tab */}
                 <TabsContent value="bunker" className="space-y-4">
-                  <form
-                    onSubmit={(e) => { e.preventDefault(); doBunker(); }}
-                    className="space-y-4"
-                  >
+                  <form onSubmit={(e) => { e.preventDefault(); doBunker(); }} className="space-y-4">
                     <Input
                       value={bunkerUri}
                       onChange={(e) => { setBunkerUri(e.target.value); setError(''); }}
