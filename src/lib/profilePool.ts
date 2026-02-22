@@ -1,31 +1,27 @@
-import { NPool, NRelay1, type NostrFilter } from '@nostrify/nostrify';
+import { NRelay1 } from '@nostrify/nostrify';
 
 /**
- * Shared relay pool for profile metadata (kind-0) fetching.
- * All hooks and utilities that need author metadata should use this
- * instead of creating their own pool instances.
+ * Dedicated profile metadata relay connections.
+ *
+ * Primary: purplepag.es — a directory relay that indexes all kind-0 metadata.
+ * Fallback: relay.primal.net — high-availability general relay, used when primary misses.
+ *
+ * Both are lazy-initialized singletons using NRelay1 (same .query() API as NPool).
  */
-const PROFILE_RELAYS = [
-  'wss://purplepag.es',
-  'wss://relay.damus.io',
-  'wss://relay.primal.net',
-];
 
-let pool: NPool | null = null;
+let primaryRelay: NRelay1 | null = null;
+let fallbackRelay: NRelay1 | null = null;
 
-export function getProfilePool(): NPool {
-  if (!pool) {
-    pool = new NPool({
-      open: (url: string) => new NRelay1(url),
-      reqRouter: (filters: NostrFilter[]) => {
-        const routes = new Map<string, NostrFilter[]>();
-        for (const url of PROFILE_RELAYS) {
-          routes.set(url, filters);
-        }
-        return routes;
-      },
-      eventRouter: () => PROFILE_RELAYS,
-    });
+export function getProfileRelay(): NRelay1 {
+  if (!primaryRelay) {
+    primaryRelay = new NRelay1('wss://purplepag.es');
   }
-  return pool;
+  return primaryRelay;
+}
+
+export function getFallbackRelay(): NRelay1 {
+  if (!fallbackRelay) {
+    fallbackRelay = new NRelay1('wss://relay.primal.net');
+  }
+  return fallbackRelay;
 }

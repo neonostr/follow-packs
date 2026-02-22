@@ -1,9 +1,9 @@
 import { NSchema as n, type NostrEvent, type NostrMetadata } from '@nostrify/nostrify';
 import { setCachedAuthor } from '@/lib/authorCache';
-import { getProfilePool } from '@/lib/profilePool';
+import { getProfileRelay } from '@/lib/profilePool';
 
 /**
- * Fetches a user's kind-0 profile metadata from fast directory relays.
+ * Fetches a user's kind-0 profile metadata from the dedicated profile relay.
  * Returns { event, metadata } or null if not found.
  * Also persists to IndexedDB cache.
  */
@@ -11,8 +11,8 @@ export async function fetchProfileFast(
   pubkey: string,
 ): Promise<{ event: NostrEvent; metadata: NostrMetadata } | null> {
   try {
-    const p = getProfilePool();
-    const [event] = await p.query(
+    const relay = getProfileRelay();
+    const [event] = await relay.query(
       [{ kinds: [0], authors: [pubkey], limit: 1 }],
       { signal: AbortSignal.timeout(3000) },
     );

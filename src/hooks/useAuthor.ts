@@ -1,10 +1,9 @@
 import { type NostrEvent, type NostrMetadata, NSchema as n } from '@nostrify/nostrify';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { setCachedAuthor } from '@/lib/authorCache';
-import { getProfilePool } from '@/lib/profilePool';
+import { getProfileRelay, getFallbackRelay } from '@/lib/profilePool';
 
 export function useAuthor(pubkey: string | undefined) {
-  const pool = getProfilePool();
   const queryClient = useQueryClient();
 
   return useQuery<{ event?: NostrEvent; metadata?: NostrMetadata }>({
@@ -14,10 +13,33 @@ export function useAuthor(pubkey: string | undefined) {
         return {};
       }
 
-      const [event] = await pool.query(
-        [{ kinds: [0], authors: [pubkey!], limit: 1 }],
-        { signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]) },
-      );
+      // Try primary relay (purplepag.es)
+      const primary = getProfileRelay();
+      let event: NostrEvent | undefined;
+
+      try {
+        const [result] = await primary.query(
+          [{ kinds: [0], authors: [pubkey], limit: 1 }],
+          { signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]) },
+        );
+        event = result;
+      } catch {
+        // Primary failed, will try fallback
+      }
+
+      // Fallback to relay.primal.net if primary returned nothing
+      if (!event) {
+        try {
+          const fallback = getFallbackRelay();
+          const [result] = await fallback.query(
+            [{ kinds: [0], authors: [pubkey], limit: 1 }],
+            { signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]) },
+          );
+          event = result;
+        } catch {
+          // Fallback also failed
+        }
+      }
 
       if (!event) {
         return {};
