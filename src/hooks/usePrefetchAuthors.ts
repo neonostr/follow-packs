@@ -1,43 +1,13 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { NSchema as n, NPool, NRelay1 } from '@nostrify/nostrify';
+import { NSchema as n } from '@nostrify/nostrify';
 import { useQueryClient } from '@tanstack/react-query';
 import { setCachedAuthor } from '@/lib/authorCache';
+import { getProfilePool } from '@/lib/profilePool';
 
 const BATCH_SIZE = 10;
 const QUERY_TIMEOUT = 6000;
 const MAX_RETRIES = 6;
 const BASE_DELAY = 2000;
-
-/**
- * Fast, dedicated relay pool for bulk author metadata fetching.
- * Uses reliable directory relays instead of the user's relay list.
- */
-const PROFILE_RELAYS = [
-  'wss://purplepag.es',
-  'wss://relay.damus.io',
-  'wss://relay.primal.net',
-];
-
-let profilePool: NPool | null = null;
-function getProfilePool(): NPool {
-  if (!profilePool) {
-    profilePool = new NPool({
-      open: (url: string) => new NRelay1(url),
-      reqRouter: (filters) => {
-        const routes = new Map<string, typeof filters>();
-        for (const url of PROFILE_RELAYS) {
-          routes.set(url, filters);
-        }
-        return routes;
-      },
-      eventRouter: () => PROFILE_RELAYS,
-    });
-  }
-  return profilePool;
-}
-
-/** Set of pubkeys currently being batch-fetched. Individual useAuthor hooks check this to avoid competing queries. */
-export const prefetchingPubkeys = new Set<string>();
 
 export function usePrefetchAuthors(pubkeys: string[]) {
   const pool = getProfilePool();
@@ -98,11 +68,7 @@ export function usePrefetchAuthors(pubkeys: string[]) {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    // Mark all pubkeys as being prefetched so individual useAuthor hooks defer
     const toFetch = pubkeys.filter((pk) => !queryClient.getQueryData(['author', pk]));
-    for (const pk of toFetch) {
-      prefetchingPubkeys.add(pk);
-    }
 
     (async () => {
       let remaining = [...toFetch];
@@ -122,18 +88,10 @@ export function usePrefetchAuthors(pubkeys: string[]) {
         const resolved = await fetchBatch(remaining, controller.signal);
         remaining = remaining.filter((pk) => !resolved.has(pk));
       }
-
-      // Unmark — any still-missing pubkeys can now be fetched individually
-      for (const pk of toFetch) {
-        prefetchingPubkeys.delete(pk);
-      }
     })();
 
     return () => {
       controller.abort();
-      for (const pk of toFetch) {
-        prefetchingPubkeys.delete(pk);
-      }
     };
   }, [pubkeys.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 }

@@ -96,18 +96,6 @@ export function useFollowPack(author: string | undefined, dTag: string | undefin
   });
 }
 
-export function useMyFollowPacks() {
-  const _nostr = useNostr();
-
-  return useQuery<FollowPack[]>({
-    queryKey: ['my-follow-packs'],
-    queryFn: async () => {
-      // This will be overridden by the component that provides the pubkey
-      return [];
-    },
-    enabled: false,
-  });
-}
 
 export function useUserFollowPacks(pubkey: string | undefined) {
   const { nostr } = useNostr();

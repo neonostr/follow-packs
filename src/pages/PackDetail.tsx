@@ -11,7 +11,7 @@ import {
   Trash2,
   Loader2,
 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { Button } from '@/components/ui/button';
@@ -36,7 +36,6 @@ import { useNostrPublish } from '@/hooks/useNostrPublish';
 import { genUserName } from '@/lib/genUserName';
 import { CreatePackDialog } from '@/components/CreatePackDialog';
 import { usePrefetchAuthors } from '@/hooks/usePrefetchAuthors';
-import { getAllCachedAuthors } from '@/lib/authorCache';
 import { RetryImage } from '@/components/RetryImage';
 import NotFound from './NotFound';
 
@@ -146,17 +145,6 @@ export default function PackDetail() {
   }
 
   const { data: pack, isLoading, error } = useFollowPack(authorPubkey, dTag);
-
-  // Bulk preload IDB cache on mount
-  useEffect(() => {
-    getAllCachedAuthors().then((cached) => {
-      for (const entry of cached) {
-        queryClient.setQueryData(['author', entry.pubkey], {
-          metadata: entry.metadata,
-        });
-      }
-    });
-  }, [queryClient]);
 
   const allPackPubkeys = [...(pack?.pubkeys ?? []), ...(authorPubkey ? [authorPubkey] : [])];
   usePrefetchAuthors(allPackPubkeys);
