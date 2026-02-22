@@ -37,6 +37,7 @@ import { genUserName } from '@/lib/genUserName';
 import { CreatePackDialog } from '@/components/CreatePackDialog';
 import { usePrefetchAuthors } from '@/hooks/usePrefetchAuthors';
 import { getAllCachedAuthors } from '@/lib/authorCache';
+import { RetryImage } from '@/components/RetryImage';
 import NotFound from './NotFound';
 
 function MemberRow({
@@ -280,11 +281,16 @@ export default function PackDetail() {
         {/* Pack header */}
         <div className="space-y-4">
           {pack.image && (
-            <div className="h-48 rounded-xl overflow-hidden">
-              <img
+            <div className="h-48 rounded-xl overflow-hidden relative">
+              <RetryImage
                 src={pack.image}
                 alt={pack.title}
                 className="w-full h-full object-cover"
+                fallback={
+                  <div className="w-full h-full bg-gradient-to-br from-primary/20 via-primary/10 to-primary/5 flex items-center justify-center">
+                    <Users className="w-10 h-10 text-primary/40" />
+                  </div>
+                }
               />
             </div>
           )}
