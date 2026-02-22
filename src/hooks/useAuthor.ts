@@ -1,7 +1,6 @@
 import { type NostrEvent, type NostrMetadata, NSchema as n, NPool, NRelay1 } from '@nostrify/nostrify';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { setCachedAuthor } from '@/lib/authorCache';
-import { prefetchingPubkeys } from '@/hooks/usePrefetchAuthors';
 
 /**
  * Dedicated fast relay pool for individual author metadata fetches.
@@ -33,6 +32,7 @@ function getAuthorPool(): NPool {
 
 export function useAuthor(pubkey: string | undefined) {
   const pool = getAuthorPool();
+  const queryClient = useQueryClient();
 
   return useQuery<{ event?: NostrEvent; metadata?: NostrMetadata }>({
     queryKey: ['author', pubkey ?? ''],
@@ -41,26 +41,9 @@ export function useAuthor(pubkey: string | undefined) {
         return {};
       }
 
-      // If this pubkey is currently being batch-fetched, wait for the batch
-      // instead of firing a competing individual query
-      if (prefetchingPubkeys.has(pubkey)) {
-        await new Promise<void>((resolve) => {
-          const check = () => {
-            if (!prefetchingPubkeys.has(pubkey)) {
-              resolve();
-            } else {
-              setTimeout(check, 200);
-            }
-          };
-          signal.addEventListener('abort', () => resolve());
-          check();
-        });
-        if (signal.aborted) return {};
-      }
-
       const [event] = await pool.query(
         [{ kinds: [0], authors: [pubkey!], limit: 1 }],
-        { signal: AbortSignal.any([signal, AbortSignal.timeout(3000)]) },
+        { signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]) },
       );
 
       if (!event) {
@@ -75,6 +58,7 @@ export function useAuthor(pubkey: string | undefined) {
         return { event };
       }
     },
+    placeholderData: () => queryClient.getQueryData(['author', pubkey ?? '']),
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     retry: 3,
