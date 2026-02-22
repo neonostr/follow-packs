@@ -6,6 +6,7 @@ import { useAuthor } from '@/hooks/useAuthor';
 import { genUserName } from '@/lib/genUserName';
 import type { FollowPack } from '@/hooks/useFollowPacks';
 import { PackMemberAvatars } from './PackMemberAvatars';
+import { RetryImage } from './RetryImage';
 
 interface FollowPackCardProps {
   pack: FollowPack;
@@ -39,10 +40,15 @@ export function FollowPackCard({ pack }: FollowPackCardProps) {
       {/* Image or gradient header */}
       <div className="h-32 relative overflow-hidden">
         {pack.image ? (
-          <img
+          <RetryImage
             src={pack.image}
             alt={pack.title}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            fallback={
+              <div className="w-full h-full bg-gradient-to-br from-primary/20 via-primary/10 to-primary/5 flex items-center justify-center">
+                <Users className="w-10 h-10 text-primary/40" />
+              </div>
+            }
           />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-primary/20 via-primary/10 to-primary/5 flex items-center justify-center">
