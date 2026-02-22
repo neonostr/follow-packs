@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, useRef, type ReactNode } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const MAX_RETRIES = 3;
@@ -12,23 +12,18 @@ interface RetryImageProps {
 }
 
 export function RetryImage({ src, alt, className, fallback }: RetryImageProps) {
-  const [retryCount, setRetryCount] = useState(0);
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [retrying, setRetrying] = useState(false);
-
-  const imgSrc =
-    retryCount > 0
-      ? `${src}${src.includes('?') ? '&' : '?'}retry=${retryCount}`
-      : src;
+  const retryCount = useRef(0);
+  const [imgSrc, setImgSrc] = useState(src);
 
   const handleError = () => {
-    if (retryCount < MAX_RETRIES) {
-      setRetrying(true);
+    if (retryCount.current < MAX_RETRIES) {
+      const currentRetry = retryCount.current;
+      retryCount.current += 1;
       setTimeout(() => {
-        setRetryCount((c) => c + 1);
-        setRetrying(false);
-      }, RETRY_DELAYS[retryCount]);
+        setImgSrc(`${src}${src.includes('?') ? '&' : '?'}retry=${retryCount.current}`);
+      }, RETRY_DELAYS[currentRetry]);
     } else {
       setFailed(true);
     }
@@ -38,14 +33,12 @@ export function RetryImage({ src, alt, className, fallback }: RetryImageProps) {
 
   return (
     <>
-      {(!loaded || retrying) && (
-        <Skeleton className={`absolute inset-0 rounded-none ${className ?? ''}`} />
-      )}
+      {!loaded && <Skeleton className="absolute inset-0 rounded-none" />}
       <img
         key={imgSrc}
         src={imgSrc}
         alt={alt}
-        className={className}
+        className={`${className ?? ''} ${loaded ? '' : 'opacity-0 absolute'}`}
         onLoad={() => setLoaded(true)}
         onError={handleError}
       />
