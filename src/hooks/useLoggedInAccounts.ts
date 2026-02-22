@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { NSchema as n, NostrEvent, NostrMetadata } from '@nostrify/nostrify';
 import { useEffect } from 'react';
 import { getCachedAuthors, setCachedAuthor } from '@/lib/authorCache';
-import { getProfilePool } from '@/lib/profilePool';
+import { getProfileRelay } from '@/lib/profilePool';
 
 export interface Account {
   id: string;
@@ -47,8 +47,8 @@ export function useLoggedInAccounts() {
   const { data: authors = [] } = useQuery({
     queryKey: ['nostr', 'logins', loginsKey],
     queryFn: async ({ signal }) => {
-      const pool = getProfilePool();
-      const events = await pool.query(
+      const relay = getProfileRelay();
+      const events = await relay.query(
         [{ kinds: [0], authors: logins.map((l) => l.pubkey), limit: logins.length }],
         { signal: AbortSignal.any([signal, AbortSignal.timeout(3000)]) },
       );

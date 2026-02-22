@@ -2,21 +2,21 @@ import { useEffect, useRef, useCallback } from 'react';
 import { NSchema as n } from '@nostrify/nostrify';
 import { useQueryClient } from '@tanstack/react-query';
 import { setCachedAuthor } from '@/lib/authorCache';
-import { getProfilePool } from '@/lib/profilePool';
+import { getProfileRelay } from '@/lib/profilePool';
 
-const BATCH_SIZE = 10;
-const QUERY_TIMEOUT = 6000;
-const MAX_RETRIES = 6;
-const BASE_DELAY = 2000;
+const BATCH_SIZE = 150;
+const QUERY_TIMEOUT = 8000;
+const MAX_RETRIES = 3;
+const BASE_DELAY = 1000;
 
 export function usePrefetchAuthors(pubkeys: string[]) {
-  const pool = getProfilePool();
   const queryClient = useQueryClient();
   const abortRef = useRef<AbortController | null>(null);
 
   const fetchBatch = useCallback(async (pks: string[], signal: AbortSignal): Promise<Set<string>> => {
     const resolved = new Set<string>();
     try {
+      const relay = getProfileRelay();
       const chunks: string[][] = [];
       for (let i = 0; i < pks.length; i += BATCH_SIZE) {
         chunks.push(pks.slice(i, i + BATCH_SIZE));
@@ -25,7 +25,7 @@ export function usePrefetchAuthors(pubkeys: string[]) {
       const results = await Promise.all(
         chunks.map(async (chunk) => {
           try {
-            return await pool.query(
+            return await relay.query(
               [{ kinds: [0], authors: chunk, limit: chunk.length }],
               { signal: AbortSignal.any([signal, AbortSignal.timeout(QUERY_TIMEOUT)]) },
             );
@@ -59,7 +59,7 @@ export function usePrefetchAuthors(pubkeys: string[]) {
       // Batch failed entirely
     }
     return resolved;
-  }, [pool, queryClient]);
+  }, [queryClient]);
 
   useEffect(() => {
     if (!pubkeys.length) return;
