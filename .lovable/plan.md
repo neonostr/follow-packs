@@ -1,131 +1,86 @@
+## Optimize Profile Metadata Loading: Single Relay, Single Request
 
+### The Problem
 
-## Big Refactor: Consolidate Relay Pools, Eliminate Duplication, Boost Speed
+Profile metadata (usernames, profile pictures) loads unreliably because of how we fetch it:
 
-### The Core Problem
+1. **Sending the same request to 3 relays redundantly** -- NPool fans out every query to purplepag.es, relay.damus.io, and relay.primal.net. All 3 get the same request, creating 3x the network traffic for the same data.
+2. **Tiny batch size of 10** -- When a page has 80 unique pubkeys, that's 8 separate network round trips per relay (24 total requests across 3 relays). Each round trip adds latency.
+3. **Individual useAuthor queries** -- Each `MemberAvatar` component fires its own separate relay query for a single pubkey, even when `usePrefetchAuthors` should have already fetched it.
 
-The codebase has accumulated significant duplication and waste. Here is a summary of every inefficiency found:
+### The Solution
 
-**1. Five separate NPool singletons connecting to the same 3 relays**
+**Use purplepag.es directly as a single NRelay1 connection.** It's a dedicated profile directory relay that indexes every Nostr user's kind-0 metadata. It's purpose-built for bulk profile lookups. No need to query 3 relays for the same data.
 
-Each of these files creates its own independent WebSocket pool to purplepag.es, relay.damus.io, relay.primal.net:
+**Send one big request instead of many small ones.** Relay protocol allows up to ~150-200 pubkeys in a single authors filter. Instead of batches of 10, we send all pubkeys in one shot.
 
-- `useAuthor.ts` -- `authorPool`
-- `usePrefetchAuthors.ts` -- `profilePool`
-- `fetchProfileFast.ts` -- `pool`
-- `useLoggedInAccounts.ts` -- `fastPool`
-- `useSearchUsers.ts` -- `_pool` (also relay.nostr.band)
+**Keep a fallback.** If purplepag.es doesn't return a profile (rare), useAuthor falls back to a secondary relay.
 
-That is potentially 15+ duplicate WebSocket connections to 3 relays, all doing the same thing: fetching kind-0 metadata. Plus the main `NostrProvider` pool (which connects to the user's configured relays).
+### Changes
 
-**2. Duplicate IDB cache preload on every page navigation**
+#### 1. Rewrite `profilePool.ts` to use a single NRelay1 to purplepag.es
 
-Both `Index.tsx` (line 66-74) and `PackDetail.tsx` (line 150-159) call `getAllCachedAuthors()` on mount, reading the entire IndexedDB store and seeding React Query. This runs every time you navigate between pages, even though the data is already in React Query's memory cache.
+- Replace NPool (3 relays) with a single NRelay1 connection to `wss://purplepag.es`
+- Export a `getProfileRelay()` function returning the NRelay1 instance
+- Add a `getProfileFallbackRelay()` that connects to `wss://relay.primal.net` only when the primary fails
+- NRelay1 has the same `.query()` API as NPool, so all consumers work unchanged
 
-**3. Dead code**
-- `fetchProfileFast.ts` -- entire file duplicates what `useAuthor` does, with its own pool
-- `useMyFollowPacks()` in `useFollowPacks.ts` -- returns empty array, never used properly
-- `prefetchingPubkeys` Set in `usePrefetchAuthors.ts` -- still exported but no longer consumed after the previous fix
+#### 2. Increase batch size in `usePrefetchAuthors.ts`
 
-**4. RetryImage re-mounts on every retry**
+- Change `BATCH_SIZE` from 10 to 150
+- This means for a typical page with 80 pubkeys, it's ONE request instead of 8
+- purplepag.es can handle this easily -- it's a strfry relay with a 16KB message limit (~200 hex pubkeys fit comfortably)
+- Reduce `MAX_RETRIES` from 6 to 3 and `BASE_DELAY` from 2000ms to 1000ms (faster recovery)
 
-Using `key={imgSrc}` forces React to destroy and recreate the `<img>` DOM element on each retry. This is unnecessary -- changing `src` alone triggers a new fetch. The key-based remount is what can cause visual flicker.
+#### 3. Add fallback logic to `useAuthor.ts`
 
----
+- Try purplepag.es first (fast, usually works)
+- If it returns nothing, try relay.primal.net as fallback
+- This handles the rare case where a very new user isn't indexed yet
 
-### Solution: 4 Changes
+#### 4. Update all consumers
 
-#### Change 1: Create a single shared profile relay pool
-
-Create `src/lib/profilePool.ts` -- one module that exports a single NPool instance for profile metadata. Every file that needs to fetch kind-0 events imports from here instead of creating its own.
-
-```text
-src/lib/profilePool.ts (NEW)
-  - Exports getProfilePool() returning a single NPool
-  - Relays: purplepag.es, relay.damus.io, relay.primal.net
-  - One pool, one set of WebSocket connections, shared everywhere
-```
-
-Then update these files to use it instead of their own pools:
-- `src/hooks/useAuthor.ts` -- remove local pool, import shared one
-- `src/hooks/usePrefetchAuthors.ts` -- remove local pool, import shared one
-- `src/hooks/useLoggedInAccounts.ts` -- remove local pool, import shared one
-- `src/lib/fetchProfileFast.ts` -- remove local pool, import shared one
-
-`useSearchUsers.ts` keeps its own pool because it includes `relay.nostr.band` for NIP-50 search (different relay set).
-
-#### Change 2: Move IDB preload to App level, run once
-
-Instead of both `Index.tsx` and `PackDetail.tsx` independently calling `getAllCachedAuthors()`, move this to a single effect in `App.tsx` (or a small component mounted once). This way it runs exactly once on app boot, not on every page navigation.
-
-- Create `src/components/AuthorCachePreloader.tsx` -- a tiny component that calls `getAllCachedAuthors()` once and seeds React Query
-- Mount it in `App.tsx` alongside `NostrSync`
-- Remove the duplicate `useEffect` + `getAllCachedAuthors` blocks from `Index.tsx` and `PackDetail.tsx`
-
-#### Change 3: Delete dead code
-
-- Delete `src/lib/fetchProfileFast.ts` entirely -- its functionality is covered by `useAuthor` and the shared pool
-- Remove the unused `useMyFollowPacks` function from `useFollowPacks.ts`
-- Remove the `prefetchingPubkeys` Set export from `usePrefetchAuthors.ts` (no longer consumed)
-
-#### Change 4: Fix RetryImage to not flicker
-
-- Remove `key={imgSrc}` from the `<img>` tag -- changing `src` is enough to trigger a new load
-- Keep `loaded` state reset when `src` changes via a `useEffect` so the skeleton shows during retries
-- This prevents DOM element destruction/recreation on each retry attempt
-
----
+- `useAuthor.ts` -- use `getProfileRelay()` instead of `getProfilePool()`
+- `usePrefetchAuthors.ts` -- use `getProfileRelay()`, bigger batches
+- `useLoggedInAccounts.ts` -- use `getProfileRelay()`
+- `fetchProfileFast.ts` -- use `getProfileRelay()`
 
 ### Technical Details
 
-**File: `src/lib/profilePool.ts` (NEW)**
-- Single NPool with the 3 profile relays
-- Simple `getProfilePool()` export
+**File: `src/lib/profilePool.ts` (rewrite)**
 
-**File: `src/hooks/useAuthor.ts`**
-- Remove lines 9-31 (local pool creation)
-- Import `getProfilePool` from `@/lib/profilePool`
-- Use `const pool = getProfilePool()` in query
+- Replace NPool with NRelay1
+- Primary: `wss://purplepag.es` (directory relay, indexes all kind-0 events)
+- Fallback: `wss://relay.primal.net` (high-availability general relay)
+- Both are lazy-initialized singletons
+- Export `getProfileRelay()` and `getFallbackRelay()`
 
-**File: `src/hooks/usePrefetchAuthors.ts`**
-- Remove lines 15-37 (local pool creation)
-- Import `getProfilePool` from `@/lib/profilePool`
-- Remove `prefetchingPubkeys` Set export (lines 39-40)
+**File: `src/hooks/usePrefetchAuthors.ts**`
 
-**File: `src/hooks/useLoggedInAccounts.ts`**
-- Remove lines 20-42 (local pool creation)
-- Import `getProfilePool` from `@/lib/profilePool`
+- `BATCH_SIZE`: 10 to 150
+- `MAX_RETRIES`: 6 to 3
+- `BASE_DELAY`: 2000 to 1000
+- `QUERY_TIMEOUT`: 6000 to 8000 (allow more time for bigger batch)
+- Use `getProfileRelay()` instead of `getProfilePool()`
 
-**File: `src/lib/fetchProfileFast.ts`**
-- Delete entirely
+**File: `src/hooks/useAuthor.ts**`
 
-**File: `src/hooks/useFollowPacks.ts`**
-- Remove `useMyFollowPacks` function (lines 99-110)
+- Primary query to `getProfileRelay()` (purplepag.es)
+- If no event returned, try `getFallbackRelay()` (relay.damus.io)
+- Keeps same React Query structure and caching
 
-**File: `src/components/AuthorCachePreloader.tsx` (NEW)**
-- Single `useEffect` that calls `getAllCachedAuthors()` and seeds queryClient
-- Renders `null`
+**File: `src/hooks/useLoggedInAccounts.ts**`
 
-**File: `src/App.tsx`**
-- Add `<AuthorCachePreloader />` next to `<NostrSync />`
+- Use `getProfileRelay()` instead of `getProfilePool()`
 
-**File: `src/pages/Index.tsx`**
-- Remove the `useEffect` + `getAllCachedAuthors` block (lines 66-74)
-- Remove `getAllCachedAuthors` import
+**File: `src/lib/fetchProfileFast.ts**`
 
-**File: `src/pages/PackDetail.tsx`**
-- Remove the `useEffect` + `getAllCachedAuthors` block (lines 150-159)
-- Remove `getAllCachedAuthors` import
-
-**File: `src/components/RetryImage.tsx`**
-- Remove `key={imgSrc}` from `<img>`
-- Add `useEffect` to reset `loaded` to false when `imgSrc` changes
+- Use `getProfileRelay()` instead of `getProfilePool()`
 
 ### Impact
 
-- WebSocket connections reduced from ~15 to ~6 (3 profile relays shared + user's configured relays)
-- IDB reads reduced from N (per page navigation) to 1 (on boot)
-- ~80 lines of dead code removed
-- No more image flicker during retries
-- Faster page loads, more reliable profile/image loading
-
+- Network requests reduced from ~24 (8 batches x 3 relays) to ~1 (single batch to single relay) for a typical page
+- WebSocket connections reduced from 3 to 1 (+ 1 fallback only when needed)
+- Faster page loads: one round trip instead of many sequential ones
+- More reliable: purplepag.es is purpose-built for this exact use case
+- Fallback ensures new/rare profiles still load
