@@ -8,6 +8,7 @@ import { Suspense } from 'react';
 import NostrProvider from '@/components/NostrProvider';
 import { NostrSync } from '@/components/NostrSync';
 import { BunkerHealthMonitor } from '@/components/BunkerHealthMonitor';
+import { AuthorCachePreloader } from '@/components/AuthorCachePreloader';
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { NostrLoginProvider } from '@nostrify/react/login';
@@ -53,6 +54,7 @@ export function App() {
             <NostrProvider>
               <NostrSync />
               <BunkerHealthMonitor />
+              <AuthorCachePreloader />
               <NWCProvider>
                 <TooltipProvider>
                   <Toaster />

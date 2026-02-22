@@ -1,4 +1,4 @@
-import { useState, useRef, type ReactNode } from 'react';
+import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const MAX_RETRIES = 3;
@@ -16,6 +16,19 @@ export function RetryImage({ src, alt, className, fallback }: RetryImageProps) {
   const [loaded, setLoaded] = useState(false);
   const retryCount = useRef(0);
   const [imgSrc, setImgSrc] = useState(src);
+
+  // Reset state when imgSrc changes (retry or new src prop)
+  useEffect(() => {
+    setLoaded(false);
+  }, [imgSrc]);
+
+  // Reset everything when src prop changes
+  useEffect(() => {
+    retryCount.current = 0;
+    setFailed(false);
+    setLoaded(false);
+    setImgSrc(src);
+  }, [src]);
 
   const handleError = () => {
     if (retryCount.current < MAX_RETRIES) {
@@ -35,7 +48,6 @@ export function RetryImage({ src, alt, className, fallback }: RetryImageProps) {
     <>
       {!loaded && <Skeleton className="absolute inset-0 rounded-none" />}
       <img
-        key={imgSrc}
         src={imgSrc}
         alt={alt}
         className={`${className ?? ''} ${loaded ? '' : 'opacity-0 absolute'}`}

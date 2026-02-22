@@ -1,37 +1,10 @@
-import { type NostrEvent, type NostrMetadata, NSchema as n, NPool, NRelay1 } from '@nostrify/nostrify';
+import { type NostrEvent, type NostrMetadata, NSchema as n } from '@nostrify/nostrify';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { setCachedAuthor } from '@/lib/authorCache';
-
-/**
- * Dedicated fast relay pool for individual author metadata fetches.
- * Uses directory relays instead of the user's relay list.
- */
-const PROFILE_RELAYS = [
-  'wss://purplepag.es',
-  'wss://relay.damus.io',
-  'wss://relay.primal.net',
-];
-
-let authorPool: NPool | null = null;
-function getAuthorPool(): NPool {
-  if (!authorPool) {
-    authorPool = new NPool({
-      open: (url: string) => new NRelay1(url),
-      reqRouter: (filters) => {
-        const routes = new Map<string, typeof filters>();
-        for (const url of PROFILE_RELAYS) {
-          routes.set(url, filters);
-        }
-        return routes;
-      },
-      eventRouter: () => PROFILE_RELAYS,
-    });
-  }
-  return authorPool;
-}
+import { getProfilePool } from '@/lib/profilePool';
 
 export function useAuthor(pubkey: string | undefined) {
-  const pool = getAuthorPool();
+  const pool = getProfilePool();
   const queryClient = useQueryClient();
 
   return useQuery<{ event?: NostrEvent; metadata?: NostrMetadata }>({

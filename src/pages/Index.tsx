@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useSeoMeta } from "@unhead/react";
-import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Users, Search, PackagePlus, ChevronDown } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -21,7 +20,6 @@ import { useFollowPacks, useUserFollowPacks } from "@/hooks/useFollowPacks";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useUserFollowList } from "@/hooks/useUserFollowList";
 import { usePrefetchAuthors } from "@/hooks/usePrefetchAuthors";
-import { getAllCachedAuthors } from "@/lib/authorCache";
 
 function PackGridSkeleton() {
   return (
@@ -49,7 +47,6 @@ function PackGridSkeleton() {
 
 const Index = () => {
   const { user } = useCurrentUser();
-  const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") || "all";
@@ -62,16 +59,6 @@ const Index = () => {
   const { data: myPacks = [], isLoading: loadingMy } = useUserFollowPacks(user?.pubkey);
   const { data: myFollowList = [] } = useUserFollowList(user?.pubkey);
 
-  // Bulk preload IDB cache on mount (instant on return visits)
-  useEffect(() => {
-    getAllCachedAuthors().then((cached) => {
-      for (const entry of cached) {
-        queryClient.setQueryData(["author", entry.pubkey], {
-          metadata: entry.metadata,
-        });
-      }
-    });
-  }, [queryClient]);
 
   // Single deduplicated prefetch for ALL packs
   const allPubkeys = useMemo(() => {
