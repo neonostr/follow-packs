@@ -1,76 +1,45 @@
 
 
-# Clean Rewrite of LoginDialog
+## Fix: Profile Pictures Not Loading for Pack Members
 
-## Why rewrite instead of patch
+### Problem
+When viewing a pack with many members, most profile pictures show fallback letters instead of actual images. Only a few profiles load successfully.
 
-The current LoginDialog has accumulated fragile patterns:
-- `setTimeout` wrapping async calls (causes unhandled rejections)
-- Removed `finally` blocks (loading state never resets on success)
-- Single shared `isLoading` boolean (one stuck method freezes everything)
-- No timeouts (extension/bunker can hang forever)
-- Mixed error state management
+**Root causes:**
+1. The batch prefetch (`usePrefetchAuthors`) queries relays with a 4-second timeout per chunk of 15 pubkeys. For large packs, many profiles fail to return in time.
+2. Individual `useAuthor` hooks wait for the batch prefetch to finish (polling every 200ms) before making their own queries. If the batch is slow, this adds significant delay.
+3. The individual `useAuthor` fallback also has a tight 3-second timeout, which may not be enough after the wait.
+4. All three pools (`usePrefetchAuthors`, `useAuthor`, `fetchProfileFast`) create separate `NPool` instances to the same relays, wasting connections.
 
-Adding more fixes on top will just create more spaghetti. A clean rewrite with correct patterns from the start is simpler and more reliable.
+### Solution
 
-## What the new LoginDialog will do
+**1. Increase timeouts and reduce batch size** (`src/hooks/usePrefetchAuthors.ts`)
+- Increase `QUERY_TIMEOUT` from 4000ms to 6000ms
+- Reduce `BATCH_SIZE` from 15 to 10 for more reliable responses
+- Increase `MAX_RETRIES` from 5 to 6
 
-Same UI, same features, but with rock-solid internals:
+**2. Remove the blocking wait in `useAuthor`** (`src/hooks/useAuthor.ts`)
+- Remove the `prefetchingPubkeys` polling loop that blocks individual queries
+- Instead, let `useAuthor` fire immediately but with `staleTime` so it won't refetch if the batch prefetch already populated the cache
+- This way, if the batch succeeds first, the individual query is skipped (cache hit); if it doesn't, the individual query runs independently without waiting
 
-1. **Timeout protection** -- Extension login gets a 15s timeout, bunker gets 30s. If the user dismisses their extension popup or a bunker never responds, the UI recovers automatically.
+**3. Increase individual query timeout** (`src/hooks/useAuthor.ts`)
+- Increase `AbortSignal.timeout` from 3000ms to 5000ms for the individual author fetch
 
-2. **Proper async/await everywhere** -- No more `setTimeout` hacks. Every login handler is a clean `async` function with `try/catch/finally`.
+**4. Add retry on the query level** (`src/hooks/useAuthor.ts`)  
+- The query already has `retry: 3`, which is good. But the timeout being too short means retries also fail. The increased timeout fixes this.
 
-3. **`finally` blocks guarantee reset** -- `isLoading` always resets to `false` no matter what happens (success, error, timeout).
+### Technical Details
 
-4. **Cancel button** -- When a login is in progress, users can cancel and try again instead of being stuck.
+**File: `src/hooks/useAuthor.ts`**
+- Remove the `prefetchingPubkeys` import and the entire `if (prefetchingPubkeys.has(pubkey))` block (~15 lines)
+- Change `AbortSignal.timeout(3000)` to `AbortSignal.timeout(5000)`
+- Add `placeholderData` using `queryClient.getQueryData` so cached IDB data shows instantly
 
-5. **Clean state reset** -- All state resets when the dialog opens, including aborting any in-flight login.
+**File: `src/hooks/usePrefetchAuthors.ts`**
+- Change `BATCH_SIZE` from 15 to 10
+- Change `QUERY_TIMEOUT` from 4000 to 6000
+- Keep the `prefetchingPubkeys` Set exported (other code may reference it) but it will no longer block individual queries
 
-## What stays the same
-
-- The visual design and layout (extension button, QR section, collapsible advanced options with key/bunker tabs)
-- `useLoginActions` hook -- works fine, no changes
-- `NostrConnectLogin` component -- separate component, no changes
-- `LoginArea` -- no changes
-- The 300ms propagation delay before closing (this is genuinely needed)
-
-## Technical details
-
-### File: `src/components/auth/LoginDialog.tsx` (full rewrite)
-
-The new file will have:
-
-```
-Helper: withTimeout(promise, ms) 
-  - Races the promise against a timer
-  - Rejects with a clear "timed out" message
-
-State:
-  - loadingMethod: null | 'extension' | 'nsec' | 'bunker' (replaces single isLoading boolean)
-  - nsec, bunkerUri, errors (same as before)
-
-Handlers (all async, all with try/catch/finally):
-  - handleExtensionLogin: withTimeout(login.extension(), 15000)
-  - handleKeyLogin: validates then calls login.nsec() 
-  - handleBunkerLogin: withTimeout(login.bunker(uri), 30000)
-  - handleFileUpload: reads file, validates, calls login.nsec()
-
-Every handler follows the same pattern:
-  try {
-    setLoadingMethod('extension')
-    await withTimeout(login.extension(), 15000)
-    await delay(300)
-    onLogin()
-    onClose()
-  } catch (e) {
-    setErrors(...)
-  } finally {
-    setLoadingMethod(null)
-  }
-```
-
-### No other files change
-
-The problem is entirely isolated to `LoginDialog.tsx`. The hooks, providers, and other auth components are fine.
+These changes ensure profiles load reliably by removing the bottleneck where individual queries wait for a potentially-failing batch, and by giving each query enough time to succeed.
 
