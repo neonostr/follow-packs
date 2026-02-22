@@ -3,9 +3,9 @@ import { NSchema as n, NPool, NRelay1 } from '@nostrify/nostrify';
 import { useQueryClient } from '@tanstack/react-query';
 import { setCachedAuthor } from '@/lib/authorCache';
 
-const BATCH_SIZE = 15;
-const QUERY_TIMEOUT = 4000;
-const MAX_RETRIES = 5;
+const BATCH_SIZE = 10;
+const QUERY_TIMEOUT = 6000;
+const MAX_RETRIES = 6;
 const BASE_DELAY = 2000;
 
 /**
