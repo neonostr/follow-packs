@@ -1,86 +1,48 @@
-## Optimize Profile Metadata Loading: Single Relay, Single Request
 
-### The Problem
 
-Profile metadata (usernames, profile pictures) loads unreliably because of how we fetch it:
+## Add NIP-05 Resolution to User Search
 
-1. **Sending the same request to 3 relays redundantly** -- NPool fans out every query to purplepag.es, relay.damus.io, and relay.primal.net. All 3 get the same request, creating 3x the network traffic for the same data.
-2. **Tiny batch size of 10** -- When a page has 80 unique pubkeys, that's 8 separate network round trips per relay (24 total requests across 3 relays). Each round trip adds latency.
-3. **Individual useAuthor queries** -- Each `MemberAvatar` component fires its own separate relay query for a single pubkey, even when `usePrefetchAuthors` should have already fetched it.
+### Problem
 
-### The Solution
+The "Add Users" search in CreatePackDialog only supports name-based NIP-50 search and direct npub/hex input. When a user types a NIP-05 identifier like `bob@example.com`, nothing happens -- it just tries a text search which returns irrelevant results or nothing.
 
-**Use purplepag.es directly as a single NRelay1 connection.** It's a dedicated profile directory relay that indexes every Nostr user's kind-0 metadata. It's purpose-built for bulk profile lookups. No need to query 3 relays for the same data.
+### How Like2RSS Does It
 
-**Send one big request instead of many small ones.** Relay protocol allows up to ~150-200 pubkeys in a single authors filter. Instead of batches of 10, we send all pubkeys in one shot.
+The [Like2RSS](/projects/6bab84aa-77d2-457c-bcdb-11559fbf336e) project resolves NIP-05 by fetching `https://{domain}/.well-known/nostr.json?name={name}` to get the hex pubkey. It does this in a Supabase edge function (`resolve-identity`), but the same logic is available client-side via `nostr-tools/nip05`.
 
-**Keep a fallback.** If purplepag.es doesn't return a profile (rare), useAuthor falls back to a secondary relay.
+### Solution
+
+Use `queryProfile` from `nostr-tools/nip05` directly in the browser. This function fetches `https://{domain}/.well-known/nostr.json?name={name}` and returns the hex pubkey. No edge function needed -- most Nostr domains serve `.well-known/nostr.json` with permissive CORS headers since it's part of the NIP-05 spec.
 
 ### Changes
 
-#### 1. Rewrite `profilePool.ts` to use a single NRelay1 to purplepag.es
+**File: `src/hooks/useSearchUsers.ts`**
+- Add a `resolveNip05` helper function that calls `queryProfile` from `nostr-tools/nip05`
+- Export it so `CreatePackDialog` can use it
 
-- Replace NPool (3 relays) with a single NRelay1 connection to `wss://purplepag.es`
-- Export a `getProfileRelay()` function returning the NRelay1 instance
-- Add a `getProfileFallbackRelay()` that connects to `wss://relay.primal.net` only when the primary fails
-- NRelay1 has the same `.query()` API as NPool, so all consumers work unchanged
-
-#### 2. Increase batch size in `usePrefetchAuthors.ts`
-
-- Change `BATCH_SIZE` from 10 to 150
-- This means for a typical page with 80 pubkeys, it's ONE request instead of 8
-- purplepag.es can handle this easily -- it's a strfry relay with a 16KB message limit (~200 hex pubkeys fit comfortably)
-- Reduce `MAX_RETRIES` from 6 to 3 and `BASE_DELAY` from 2000ms to 1000ms (faster recovery)
-
-#### 3. Add fallback logic to `useAuthor.ts`
-
-- Try purplepag.es first (fast, usually works)
-- If it returns nothing, try relay.primal.net as fallback
-- This handles the rare case where a very new user isn't indexed yet
-
-#### 4. Update all consumers
-
-- `useAuthor.ts` -- use `getProfileRelay()` instead of `getProfilePool()`
-- `usePrefetchAuthors.ts` -- use `getProfileRelay()`, bigger batches
-- `useLoggedInAccounts.ts` -- use `getProfileRelay()`
-- `fetchProfileFast.ts` -- use `getProfileRelay()`
+**File: `src/components/CreatePackDialog.tsx`**
+- Update `tryAddDirect` to detect NIP-05 format (contains `@` with a domain) using `isNip05` from `nostr-tools/nip05`
+- When a NIP-05 is detected, call `resolveNip05` to get the hex pubkey
+- Then call `fetchAndCacheProfile` with the resolved pubkey and add it to the list
+- Show a brief loading state during resolution
 
 ### Technical Details
 
-**File: `src/lib/profilePool.ts` (rewrite)**
+```text
+NIP-05 detection: input matches user@domain.tld pattern
+Resolution: nostr-tools/nip05 queryProfile(identifier) → { pubkey, relays }
+Flow: detect NIP-05 → resolve to hex pubkey → fetch profile → add to list
+```
 
-- Replace NPool with NRelay1
-- Primary: `wss://purplepag.es` (directory relay, indexes all kind-0 events)
-- Fallback: `wss://relay.primal.net` (high-availability general relay)
-- Both are lazy-initialized singletons
-- Export `getProfileRelay()` and `getFallbackRelay()`
+**In `useSearchUsers.ts`:**
+- Import `queryProfile` from `nostr-tools/nip05`
+- Add `resolveNip05(nip05: string): Promise<string | null>` that wraps `queryProfile` with a 5s timeout and returns the hex pubkey or null
 
-**File: `src/hooks/usePrefetchAuthors.ts**`
+**In `CreatePackDialog.tsx` `tryAddDirect`:**
+- After the existing npub/hex checks, add a NIP-05 check using the regex `/@.+\..+$/`
+- If it matches, call `resolveNip05(trimmed)`
+- If resolution succeeds, call `fetchAndCacheProfile(pubkey, queryClient)` then `addPubkey(pubkey)`
+- If it fails, fall through to normal search
 
-- `BATCH_SIZE`: 10 to 150
-- `MAX_RETRIES`: 6 to 3
-- `BASE_DELAY`: 2000 to 1000
-- `QUERY_TIMEOUT`: 6000 to 8000 (allow more time for bigger batch)
-- Use `getProfileRelay()` instead of `getProfilePool()`
+This is the same core approach as Like2RSS (fetch `.well-known/nostr.json`), just using the existing `nostr-tools` library instead of a custom edge function.
 
-**File: `src/hooks/useAuthor.ts**`
-
-- Primary query to `getProfileRelay()` (purplepag.es)
-- If no event returned, try `getFallbackRelay()` (relay.damus.io)
-- Keeps same React Query structure and caching
-
-**File: `src/hooks/useLoggedInAccounts.ts**`
-
-- Use `getProfileRelay()` instead of `getProfilePool()`
-
-**File: `src/lib/fetchProfileFast.ts**`
-
-- Use `getProfileRelay()` instead of `getProfilePool()`
-
-### Impact
-
-- Network requests reduced from ~24 (8 batches x 3 relays) to ~1 (single batch to single relay) for a typical page
-- WebSocket connections reduced from 3 to 1 (+ 1 fallback only when needed)
-- Faster page loads: one round trip instead of many sequential ones
-- More reliable: purplepag.es is purpose-built for this exact use case
-- Fallback ensures new/rare profiles still load
