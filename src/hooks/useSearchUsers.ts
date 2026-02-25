@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { NostrEvent, NostrMetadata } from '@nostrify/nostrify';
 import { NSchema as n, NPool, NRelay1 } from '@nostrify/nostrify';
+import { queryProfile } from 'nostr-tools/nip05';
 
 export interface SearchResult {
   pubkey: string;
@@ -107,6 +108,23 @@ export function useSearchUsers(query: string) {
     enabled: query.length >= 2,
     staleTime: 30_000,
   });
+}
+
+/**
+ * Resolve a NIP-05 identifier (e.g. bob@example.com) to a hex pubkey.
+ * Returns null if resolution fails or times out.
+ */
+export async function resolveNip05(nip05: string): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const profile = await queryProfile(nip05);
+    clearTimeout(timeout);
+    if (profile?.pubkey) return profile.pubkey;
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function parseResults(events: NostrEvent[]): SearchResult[] {

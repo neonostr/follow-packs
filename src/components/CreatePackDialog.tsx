@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useNostrPublish } from '@/hooks/useNostrPublish';
-import { useSearchUsers, fetchAndCacheProfile, seedAuthorCache } from '@/hooks/useSearchUsers';
+import { useSearchUsers, fetchAndCacheProfile, seedAuthorCache, resolveNip05 } from '@/hooks/useSearchUsers';
 import type { SearchResult } from '@/hooks/useSearchUsers';
 import { useAuthor } from '@/hooks/useAuthor';
 import { genUserName } from '@/lib/genUserName';
@@ -86,6 +86,8 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
     setSelectedPubkeys((prev) => prev.filter((pk) => pk !== pubkey));
   }, []);
 
+  const [isResolvingNip05, setIsResolvingNip05] = useState(false);
+
   const tryAddDirect = useCallback(async (input: string): Promise<boolean> => {
     const trimmed = input.trim();
     if (!trimmed) return false;
@@ -113,6 +115,25 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
       await fetchAndCacheProfile(pubkey, queryClient);
       addPubkey(pubkey);
       return true;
+    }
+
+    // NIP-05 detection: user@domain.tld
+    if (/.+@.+\..+$/.test(trimmed)) {
+      setIsResolvingNip05(true);
+      try {
+        const resolved = await resolveNip05(trimmed);
+        if (resolved) {
+          if (selectedPubkeys.includes(resolved)) {
+            setSearchQuery('');
+            return true;
+          }
+          await fetchAndCacheProfile(resolved, queryClient);
+          addPubkey(resolved);
+          return true;
+        }
+      } finally {
+        setIsResolvingNip05(false);
+      }
     }
 
     return false;
@@ -289,7 +310,7 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
                   variant="outline"
                   size="sm"
                   className="h-10 shrink-0 rounded-lg px-4"
-                  disabled={searchQuery.trim().length < 2 || isSearching}
+                  disabled={searchQuery.trim().length < 2 || isSearching || isResolvingNip05}
                   onClick={() => {
                     tryAddDirect(searchQuery).then((added) => {
                       if (!added && searchQuery.trim().length >= 2) {
@@ -298,7 +319,7 @@ export function CreatePackDialog({ open, onOpenChange, editPack }: CreatePackDia
                     });
                   }}
                 >
-                  {isSearching ? (
+                  {isSearching || isResolvingNip05 ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <>
