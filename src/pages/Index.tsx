@@ -268,7 +268,13 @@ const Index = () => {
           <p>
             Follow Packs - Made with love by{" "}
             <a
-              href="https://neo21.dev"
+              href={
+                typeof window !== "undefined" &&
+                (window.location.hostname === "neo21.dev" ||
+                  window.location.hostname.endsWith(".neo21.dev"))
+                  ? "https://neo21.dev"
+                  : "https://neo21.io"
+              }
               target="_blank"
               rel="noopener noreferrer"
               className="footer-link relative text-muted-foreground transition-colors hover:text-foreground"
