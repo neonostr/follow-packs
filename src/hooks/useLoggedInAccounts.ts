@@ -5,6 +5,7 @@ import { NSchema as n, NostrEvent, NostrMetadata } from '@nostrify/nostrify';
 import { useEffect } from 'react';
 import { getCachedAuthors, setCachedAuthor } from '@/lib/authorCache';
 import { getProfileRelay } from '@/lib/profilePool';
+import { clearRemoteSigners } from '@/lib/nip46';
 
 export interface Account {
   id: string;
@@ -71,6 +72,7 @@ export function useLoggedInAccounts() {
 
   const clearLoginsClean = useCallback(() => {
     rawClearLogins();
+    clearRemoteSigners();
     queryClient.removeQueries({ queryKey: ['nostr', 'logins'] });
     queryClient.invalidateQueries({ queryKey: ['nostr'] });
   }, [rawClearLogins, queryClient]);
