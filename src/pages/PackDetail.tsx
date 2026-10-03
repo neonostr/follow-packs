@@ -144,7 +144,7 @@ export default function PackDetail() {
     // Invalid npub
   }
 
-  const { data: pack, isLoading, error } = useFollowPack(authorPubkey, dTag);
+  const { data: pack, isLoading, error, refetch, isFetching } = useFollowPack(authorPubkey, dTag);
 
   const allPackPubkeys = [...(pack?.pubkeys ?? []), ...(authorPubkey ? [authorPubkey] : [])];
   usePrefetchAuthors(allPackPubkeys);
@@ -246,8 +246,25 @@ export default function PackDetail() {
     );
   }
 
-  if (!pack || error) {
-    return <NotFound />;
+  if (!pack) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+        <div className="text-center space-y-4 max-w-sm">
+          <h1 className="text-xl font-semibold text-foreground">List not found yet</h1>
+          <p className="text-sm text-muted-foreground">
+            {error ? 'The relays have not returned this list. If you just created or edited it, give it a moment.' : ''}
+          </p>
+          <div className="flex gap-2 justify-center">
+            <Button onClick={() => refetch()} disabled={isFetching}>
+              {isFetching ? 'Searching…' : 'Try again'}
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/">Back to home</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const notFollowedCount = user
