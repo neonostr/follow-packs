@@ -1,11 +1,11 @@
-import { useNostr } from '@nostrify/react';
+import { BunkerURI } from '@nostrify/nostrify';
 import { NLogin, useNostrLogin } from '@nostrify/react/login';
 import { useQueryClient } from '@tanstack/react-query';
+import { getNip46Pool, clearRemoteSigners } from '@/lib/nip46';
 
 // NOTE: This file should not be edited except for adding new login methods.
 
 export function useLoginActions() {
-  const { nostr } = useNostr();
   const { addLogin, clearLogins } = useNostrLogin();
   const queryClient = useQueryClient();
 
@@ -17,9 +17,11 @@ export function useLoginActions() {
       const login = NLogin.fromNsec(nsec);
       addLogin(login);
     },
-    // Login with a NIP-46 "bunker://" URI
+    // Login with a NIP-46 "bunker://" URI — uses only the URI's relays
     async bunker(uri: string): Promise<void> {
-      const login = await NLogin.fromBunker(uri, nostr);
+      const { relays } = new BunkerURI(uri);
+      if (!relays.length) throw new Error('Bunker URI has no relay.');
+      const login = await NLogin.fromBunker(uri, getNip46Pool(relays));
       addLogin(login);
     },
     // Login with a NIP-07 browser extension
