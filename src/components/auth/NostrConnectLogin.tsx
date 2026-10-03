@@ -2,20 +2,18 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Loader2, QrCode, RefreshCw, Smartphone } from 'lucide-react';
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { nip19 } from 'nostr-tools';
-import { SimplePool } from 'nostr-tools/pool';
-import { BunkerSigner } from 'nostr-tools/nip46';
-import { getConversationKey, decrypt } from 'nostr-tools/nip44';
+import { NConnectSigner, NSecSigner } from '@nostrify/nostrify';
 import QRCode from 'qrcode';
 
 import { Button } from '@/components/ui/button';
 import { useLoginActions } from '@/hooks/useLoginActions';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { getNip46Pool } from '@/lib/nip46';
 
-const NOSTRCONNECT_RELAYS = [
-  'wss://relay.damus.io',
-  'wss://relay.primal.net',
-  'wss://relay.nsec.app',
-];
+const RELAYS = ['wss://relay.nsec.app', 'wss://relay.damus.io', 'wss://relay.primal.net'];
+const QR_TTL_MS = 5 * 60_000;
+
+type Status = 'generating' | 'waiting' | 'connecting' | 'expired' | 'error';
 
 interface NostrConnectLoginProps {
   onLogin: () => void;
@@ -23,23 +21,24 @@ interface NostrConnectLoginProps {
 
 export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
   const login = useLoginActions();
+  const isTouchDevice = useIsMobile();
+  const [status, setStatus] = useState<Status>('generating');
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [connectUri, setConnectUri] = useState<string | null>(null);
-  const [status, setStatus] = useState<'idle' | 'generating' | 'waiting' | 'connecting' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
-  const isTouchDevice = useIsMobile();
-  const cleanupRef = useRef<(() => void) | null>(null);
-  const hasConnected = useRef(false);
+
+  const abortRef = useRef<AbortController | null>(null);
   const loginRef = useRef(login);
   const onLoginRef = useRef(onLogin);
   loginRef.current = login;
   onLoginRef.current = onLogin;
 
-  const generateNostrConnect = useCallback(async () => {
-    // Cleanup previous attempt
-    cleanupRef.current?.();
-    cleanupRef.current = null;
-    hasConnected.current = false;
+  const start = useCallback(async () => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    const { signal } = ctrl;
+
     setError(null);
     setStatus('generating');
     setQrDataUrl(null);
@@ -48,160 +47,127 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
     try {
       const clientSk = generateSecretKey();
       const clientPubkey = getPublicKey(clientSk);
-      const clientNsec = nip19.nsecEncode(clientSk);
+      const clientSigner = new NSecSigner(clientSk);
+      const secret = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
 
-      const secret = (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10)).slice(0, 16);
+      const params = new URLSearchParams();
+      RELAYS.forEach((r) => params.append('relay', r));
+      params.set('secret', secret);
+      params.set('perms', 'sign_event,get_public_key,nip44_encrypt,nip44_decrypt,nip04_encrypt,nip04_decrypt');
+      params.set('name', 'Follow Packs');
+      params.set('url', location.origin);
+      params.set('image', `${location.origin}/icon-192.png`);
+      const uri = `nostrconnect://${clientPubkey}?${params.toString()}`;
 
-      const relayParams = NOSTRCONNECT_RELAYS.map(r => `relay=${encodeURIComponent(r)}`).join('&');
-      const nostrconnectUri = `nostrconnect://${clientPubkey}?${relayParams}&secret=${encodeURIComponent(secret)}&name=${encodeURIComponent('Follow Packs')}&url=${encodeURIComponent(location.origin)}&image=${encodeURIComponent(`${location.origin}/icon-192.png`)}&perms=sign_event,nip44_encrypt,nip44_decrypt`;
-
-      const dataUrl = await QRCode.toDataURL(nostrconnectUri, {
+      const dataUrl = await QRCode.toDataURL(uri, {
         width: 280,
         margin: 2,
         color: { dark: '#1a1a2e', light: '#ffffff' },
         errorCorrectionLevel: 'M',
       });
+      if (signal.aborted) return;
 
       setQrDataUrl(dataUrl);
-      setConnectUri(nostrconnectUri);
+      setConnectUri(uri);
       setStatus('waiting');
 
-      // Use nostr-tools SimplePool for reliable long-running subscription
-      const pool = new SimplePool();
+      const expiry = setTimeout(() => {
+        if (!signal.aborted) {
+          ctrl.abort();
+          setStatus('expired');
+        }
+      }, QR_TTL_MS);
+      signal.addEventListener('abort', () => clearTimeout(expiry));
 
-      const subCloser = pool.subscribeMany(
-        NOSTRCONNECT_RELAYS,
-        [{ kinds: [24133], '#p': [clientPubkey] }],
-        {
-          onevent: async (event) => {
-            if (hasConnected.current) return;
-            console.info('NostrConnect: received event from', event.pubkey, 'kind:', event.kind);
+      const pool = getNip46Pool(RELAYS);
+      const since = Math.floor(Date.now() / 1000) - 10;
 
-            try {
-              // Decrypt with NIP-44 (modern standard for NIP-46)
-              let decrypted: string;
-              try {
-                const convKey = getConversationKey(clientSk, event.pubkey);
-                decrypted = decrypt(event.content, convKey);
-              } catch {
-                // NIP-04 fallback for older signers
-                const { decrypt: nip04Decrypt } = await import('nostr-tools/nip04');
-                const { bytesToHex } = await import('@noble/hashes/utils');
-                decrypted = await nip04Decrypt(bytesToHex(clientSk), event.pubkey, event.content);
-              }
+      for await (const msg of pool.req([{ kinds: [24133], '#p': [clientPubkey], since }], { signal })) {
+        if (msg[0] !== 'EVENT') continue;
+        const event = msg[2];
 
-              const response = JSON.parse(decrypted);
-              console.info('NostrConnect: decrypted response', JSON.stringify(response));
-              console.info('NostrConnect: expected secret', secret, 'got result', response.result);
+        let plaintext: string;
+        try {
+          plaintext = await clientSigner.nip44.decrypt(event.pubkey, event.content);
+        } catch {
+          try {
+            plaintext = await clientSigner.nip04.decrypt(event.pubkey, event.content);
+          } catch {
+            continue;
+          }
+        }
 
-              if (response.result === secret) {
-                hasConnected.current = true;
-                setStatus('connecting');
-                subCloser.close();
+        let result: unknown;
+        try {
+          result = JSON.parse(plaintext).result;
+        } catch {
+          continue;
+        }
+        if (result !== secret && result !== 'ack') continue;
 
-                const bunkerPubkey = event.pubkey;
+        // Connected. Get the user's pubkey over the SAME relays, then stop listening.
+        const bunkerPubkey = event.pubkey;
+        clearTimeout(expiry);
+        setStatus('connecting');
 
-                console.info('NostrConnect: signer responded, fetching user pubkey...', { bunkerPubkey });
+        const remote = new NConnectSigner({
+          relay: pool,
+          pubkey: bunkerPubkey,
+          signer: clientSigner,
+          timeout: 15_000,
+        });
 
-                // Short stabilization delay for relay connections
-                await new Promise(resolve => setTimeout(resolve, 1500));
+        let userPubkey: string;
+        try {
+          userPubkey = await remote.getPublicKey();
+        } catch {
+          // Older signers: user key equals signer key
+          userPubkey = bunkerPubkey;
+        }
 
-                // Use nostr-tools BunkerSigner to get the user's actual public key
-                const signer = new BunkerSigner(clientSk, {
-                  pubkey: bunkerPubkey,
-                  relays: NOSTRCONNECT_RELAYS,
-                  secret: secret,
-                }, { pool });
-
-                let userPubkey: string | undefined;
-                for (let attempt = 0; attempt < 3; attempt++) {
-                  try {
-                    userPubkey = await signer.getPublicKey();
-                    break;
-                  } catch (err) {
-                    console.warn(`getPublicKey attempt ${attempt + 1} failed:`, err);
-                    if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
-                  }
-                }
-
-                await signer.close();
-
-                if (!userPubkey) {
-                  throw new Error('Failed to get public key from signer after multiple attempts.');
-                }
-
-                console.info('NostrConnect: login successful', { userPubkey });
-
-                await loginRef.current.nostrconnect({
-                  bunkerPubkey,
-                  clientNsec: clientNsec as `nsec1${string}`,
-                  relays: NOSTRCONNECT_RELAYS,
-                  userPubkey,
-                });
-
-                onLoginRef.current();
-              }
-            } catch (err) {
-              if (hasConnected.current) {
-                // Error during post-connect flow
-                console.error('NostrConnect post-connect error:', err);
-                setError(err instanceof Error ? err.message : 'Connection failed after signer responded.');
-                setStatus('error');
-              }
-              // Otherwise: decryption failed or not our message, keep listening
-            }
-          },
-        },
-      );
-
-      cleanupRef.current = () => {
-        subCloser.close();
-      };
-
-      console.info('NostrConnect QR generated', {
-        relays: NOSTRCONNECT_RELAYS,
-        clientPubkey,
-        uri: nostrconnectUri,
-      });
+        ctrl.abort();
+        await loginRef.current.nostrconnect({
+          bunkerPubkey,
+          clientNsec: nip19.nsecEncode(clientSk),
+          relays: RELAYS,
+          userPubkey,
+        });
+        onLoginRef.current();
+        return;
+      }
     } catch (err) {
-      console.error('NostrConnect error:', err);
+      if (signal.aborted) return;
+      console.error('[NostrConnect]', err);
       setError(err instanceof Error ? err.message : 'Connection failed. Please try again.');
       setStatus('error');
     }
   }, []);
 
   useEffect(() => {
-    generateNostrConnect();
-    return () => {
-      cleanupRef.current?.();
-    };
-  }, [generateNostrConnect]);
+    start();
+    return () => abortRef.current?.abort();
+  }, [start]);
 
-  if (status === 'generating' || status === 'idle') {
+  if (status === 'generating' || status === 'connecting') {
     return (
       <div className="flex flex-col items-center justify-center py-6 space-y-3">
         <Loader2 className="w-8 h-8 text-primary animate-spin" />
-        <p className="text-sm text-muted-foreground">Generating QR code...</p>
+        <p className="text-sm text-muted-foreground">
+          {status === 'generating' ? 'Generating QR code...' : 'Connecting to signer...'}
+        </p>
       </div>
     );
   }
 
-  if (status === 'connecting') {
+  if (status === 'error' || status === 'expired') {
     return (
       <div className="flex flex-col items-center justify-center py-6 space-y-3">
-        <Loader2 className="w-8 h-8 text-primary animate-spin" />
-        <p className="text-sm text-muted-foreground">Connecting to signer...</p>
-      </div>
-    );
-  }
-
-  if (status === 'error') {
-    return (
-      <div className="flex flex-col items-center justify-center py-6 space-y-3">
-        <p className="text-sm text-destructive">{error}</p>
-        <Button variant="outline" size="sm" onClick={generateNostrConnect}>
+        <p className={`text-sm ${status === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>
+          {status === 'error' ? error : 'This QR code has expired.'}
+        </p>
+        <Button variant="outline" size="sm" onClick={start}>
           <RefreshCw className="w-4 h-4 mr-1.5" />
-          Try Again
+          Generate new code
         </Button>
       </div>
     );
@@ -214,18 +180,14 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
           <QrCode className="w-4 h-4" />
           Scan with your signer app
         </div>
-        <p className="text-xs text-muted-foreground">
-          Works with Amber, nsec.app, and other NIP-46 signers
-        </p>
+        <p className="text-xs text-muted-foreground">Works with Amber, nsec.app, and other NIP-46 signers</p>
       </div>
 
       {qrDataUrl && (
         <div
           className={`relative bg-white rounded-xl p-2 shadow-sm border ${isTouchDevice && connectUri ? 'cursor-pointer active:scale-[0.98] transition-transform' : ''}`}
           onClick={() => {
-            if (isTouchDevice && connectUri) {
-              window.open(connectUri, '_blank');
-            }
+            if (isTouchDevice && connectUri) window.location.href = connectUri;
           }}
           role={isTouchDevice ? 'link' : undefined}
         >
@@ -246,12 +208,7 @@ export function NostrConnectLogin({ onLogin }: NostrConnectLoginProps) {
         Waiting for connection...
       </div>
 
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={generateNostrConnect}
-        className="text-xs"
-      >
+      <Button variant="ghost" size="sm" onClick={start} className="text-xs">
         <RefreshCw className="w-3 h-3 mr-1" />
         Generate new code
       </Button>

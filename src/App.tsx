@@ -7,7 +7,6 @@ import { InferSeoMetaPlugin } from '@unhead/addons';
 import { Suspense } from 'react';
 import NostrProvider from '@/components/NostrProvider';
 import { NostrSync } from '@/components/NostrSync';
-import { BunkerHealthMonitor } from '@/components/BunkerHealthMonitor';
 import { AuthorCachePreloader } from '@/components/AuthorCachePreloader';
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -53,7 +52,6 @@ export function App() {
           <NostrLoginProvider storageKey='nostr:login'>
             <NostrProvider>
               <NostrSync />
-              <BunkerHealthMonitor />
               <AuthorCachePreloader />
               <NWCProvider>
                 <TooltipProvider>

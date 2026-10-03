@@ -154,7 +154,7 @@ export default function LoginDialog({ isOpen, onClose, onLogin }: LoginDialogPro
       Promise.race([
         actionsRef.current.bunker(uri),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Bunker timed out (30s). Please try again.')), 30_000),
+          setTimeout(() => reject(new Error('Signer did not respond within 20 seconds. Approve the request in your signer app and try again.')), 20_000),
         ),
       ]),
     );
