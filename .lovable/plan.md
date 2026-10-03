@@ -1,48 +1,44 @@
+# Fix signer app (QR / NIP-46) login
 
+## What's wrong today
 
-## Add NIP-05 Resolution to User Search
+1. **Two different Nostr libraries handle one login.** The QR handshake runs on nostr-tools. Signing afterwards runs on Nostrify. That means two sets of relay connections and two ways of encrypting. The first library gets thrown away right after the handshake.
+2. **Extra wait after the scan.** Once the signer replies, we wait a fixed 1.5s. Then we close the handshake connection, open a new `BunkerSigner`, and ask for the public key again, with up to 3 retries 2s apart. That adds roughly 2 to 8 seconds of "Connecting to signer..." for no reason.
+3. **Secret check is too strict.** Some signers, such as older Amber builds, reply with `"ack"` instead of echoing the secret. We silently ignore that reply, so the QR code just keeps "waiting" forever.
+4. **The relays don't match.** The QR code lists damus, primal and nsec.app. After login, signing reconnects through the main relay pool, which also carries the user's own relay list (for example welcome.nostr.wine). The connections get rebuilt and the first signing request often times out.
+5. **The connection check logs people out.** Every 60s, and every time the tab comes back into view, we ask the signer for the public key. Phones put signer apps to sleep, so these checks fail and users get logged out. The logout also shows a toast, which is against the "no toasts" rule.
+6. **The session isn't saved.** The QR login is kept in memory only, so every page reload means scanning again.
 
-### Problem
+## Best practice (NIP-46 spec, and how Nostrudel, Coracle and Primal do it)
 
-The "Add Users" search in CreatePackDialog only supports name-based NIP-50 search and direct npub/hex input. When a user types a NIP-05 identifier like `bob@example.com`, nothing happens -- it just tries a text search which returns irrelevant results or nothing.
+- One temporary client keypair and one long-lived subscription on the relays listed in the `nostrconnect://` URI. Use the same relays for both the handshake and all later requests.
+- Accept the `connect` reply when `result === secret` **or** `result === "ack"`. The reply comes from the remote signer's pubkey.
+- After connecting, call `get_public_key` once (spec 2025+). Its result becomes the user's pubkey. No fixed delays.
+- Save the login (client key, signer pubkey, relays) so it survives a reload. The signer already trusts this client, so nothing has to be scanned again.
+- Don't ping the signer in the background. Only show an error when an actual signing request fails, and let the user reconnect from there.
 
-### How Like2RSS Does It
+## Changes
 
-The [Like2RSS](/projects/6bab84aa-77d2-457c-bcdb-11559fbf336e) project resolves NIP-05 by fetching `https://{domain}/.well-known/nostr.json?name={name}` to get the hex pubkey. It does this in a Supabase edge function (`resolve-identity`), but the same logic is available client-side via `nostr-tools/nip05`.
+**`NostrConnectLogin.tsx` (rewrite)**
+- Use only Nostrify: an `NRelay1` group for the URI relays, with `eoseTimeout: 0`.
+- Subscribe to kind 24133 `#p` = client pubkey, then decrypt with NIP-44, falling back to NIP-04.
+- Accept the reply on `secret` or `"ack"`, then make one `NConnectSigner.getPublicKey()` call on the same connection (10s timeout). No sleep, no reconnect.
+- The QR code expires after 5 minutes and shows a "Generate new code" state. The connection is cleaned up when the component closes.
+- Add `get_public_key` to the requested permissions.
 
-### Solution
+**`useCurrentUser.ts` (bunker branch)**
+- The NIP-46 pool connects only to `login.data.relays`, using its own `NRelay1` instances. It no longer uses `pool.relay()` from the main pool.
+- Cache the signer for each login id, so it isn't rebuilt on every render.
 
-Use `queryProfile` from `nostr-tools/nip05` directly in the browser. This function fetches `https://{domain}/.well-known/nostr.json?name={name}` and returns the hex pubkey. No edge function needed -- most Nostr domains serve `.well-known/nostr.json` with permissive CORS headers since it's part of the NIP-05 spec.
+**`useLoginActions.ts` / login storage**
+- Save QR and bunker logins like every other login, so a reload keeps you signed in. Logout still wipes everything.
 
-### Changes
+**`useBunkerHealth.ts` / `BunkerHealthMonitor`**
+- Remove the background pinging and the toast.
+- When a sign request actually times out, show an inline "Signer not responding, reconnect" message where the action happened.
 
-**File: `src/hooks/useSearchUsers.ts`**
-- Add a `resolveNip05` helper function that calls `queryProfile` from `nostr-tools/nip05`
-- Export it so `CreatePackDialog` can use it
+**Bunker URI tab**
+- Same relay isolation. Lower the timeout to 20s and show a clear inline error.
 
-**File: `src/components/CreatePackDialog.tsx`**
-- Update `tryAddDirect` to detect NIP-05 format (contains `@` with a domain) using `isNip05` from `nostr-tools/nip05`
-- When a NIP-05 is detected, call `resolveNip05` to get the hex pubkey
-- Then call `fetchAndCacheProfile` with the resolved pubkey and add it to the list
-- Show a brief loading state during resolution
-
-### Technical Details
-
-```text
-NIP-05 detection: input matches user@domain.tld pattern
-Resolution: nostr-tools/nip05 queryProfile(identifier) → { pubkey, relays }
-Flow: detect NIP-05 → resolve to hex pubkey → fetch profile → add to list
-```
-
-**In `useSearchUsers.ts`:**
-- Import `queryProfile` from `nostr-tools/nip05`
-- Add `resolveNip05(nip05: string): Promise<string | null>` that wraps `queryProfile` with a 5s timeout and returns the hex pubkey or null
-
-**In `CreatePackDialog.tsx` `tryAddDirect`:**
-- After the existing npub/hex checks, add a NIP-05 check using the regex `/@.+\..+$/`
-- If it matches, call `resolveNip05(trimmed)`
-- If resolution succeeds, call `fetchAndCacheProfile(pubkey, queryClient)` then `addPubkey(pubkey)`
-- If it fails, fall through to normal search
-
-This is the same core approach as Like2RSS (fetch `.well-known/nostr.json`), just using the existing `nostr-tools` library instead of a custom edge function.
-
+## Result
+After scanning, you're logged in within about 1 second of approving in Amber or nsec.app. The session survives a page reload, and you no longer get logged out at random.
