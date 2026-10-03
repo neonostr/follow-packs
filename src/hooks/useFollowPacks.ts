@@ -1,5 +1,5 @@
 import { useNostr } from '@nostrify/react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { NostrEvent } from '@nostrify/nostrify';
 
 /** Kind 39089 = Starter Packs (NIP-51) */
@@ -75,24 +75,59 @@ export function useFollowPacks(limit = 50) {
   });
 }
 
+const BACKUP_RELAYS = [
+  'wss://relay.damus.io',
+  'wss://relay.primal.net',
+  'wss://nos.lol',
+  'wss://relay.nostr.band',
+];
+
 export function useFollowPack(author: string | undefined, dTag: string | undefined) {
   const { nostr } = useNostr();
+  const queryClient = useQueryClient();
 
-  return useQuery<FollowPack | null>({
+  // Reuse a copy already loaded in any pack list (instant open)
+  const findCached = (): FollowPack | undefined => {
+    if (!author || !dTag) return undefined;
+    const lists = [
+      ...queryClient.getQueriesData<FollowPack[]>({ queryKey: ['user-follow-packs'] }),
+      ...queryClient.getQueriesData<FollowPack[]>({ queryKey: ['follow-packs'] }),
+    ];
+    let best: FollowPack | undefined;
+    for (const [, data] of lists) {
+      for (const p of data ?? []) {
+        if (p.author === author && p.dTag === dTag && (!best || p.createdAt > best.createdAt)) best = p;
+      }
+    }
+    return best;
+  };
+
+  return useQuery<FollowPack>({
     queryKey: ['follow-pack', author, dTag],
     queryFn: async ({ signal }) => {
-      if (!author || !dTag) return null;
+      const filter = [{ kinds: [FOLLOW_PACK_KIND], authors: [author!], '#d': [dTag!], limit: 1 }];
+      const opts = { signal: AbortSignal.any([signal, AbortSignal.timeout(6000)]) };
 
-      const events = await nostr.query(
-        [{ kinds: [FOLLOW_PACK_KIND], authors: [author], '#d': [dTag], limit: 1 }],
-        { signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]) },
-      );
+      const results = await Promise.allSettled([
+        nostr.query(filter, opts),
+        nostr.group(BACKUP_RELAYS).query(filter, opts),
+      ]);
 
-      if (events.length === 0) return null;
-      return parseFollowPack(events[0]);
+      const events = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+      const newest = events.sort((a, b) => b.created_at - a.created_at)[0];
+      const parsed = newest ? parseFollowPack(newest) : null;
+      const cached = findCached();
+
+      if (parsed && (!cached || parsed.createdAt >= cached.createdAt)) return parsed;
+      if (cached) return cached;
+      throw new Error('Pack not found yet');
     },
+    initialData: findCached,
+    initialDataUpdatedAt: 0, // still refresh in the background
     enabled: !!author && !!dTag,
     staleTime: 60_000,
+    retry: 3,
+    retryDelay: (n) => 1000 * 2 ** n,
   });
 }
 
